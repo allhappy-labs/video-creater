@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "id": "provider-e2e-generated",
+  "kind": "generated",
+  "status": "completed",
+  "name": "Provider E2E still",
+  "prompt": "Video Creater parity evidence product launch frame",
+  "model": {
+    "provider": "replicate",
+    "id": "black-forest-labs/flux-schnell"
+  },
+  "references": {
+    "mediaIds": [],
+    "firstFrameMediaId": null,
+    "lastFrameMediaId": null
+  },
+  "settings": {
+    "width": 1024,
+    "height": 768,
+    "durationSeconds": null,
+    "fps": null,
+    "aspectRatio": "4:3"
+  },
+  "outputs": [
+    {
+      "mediaId": "provider-e2e-generated-replicate-output",
+      "relativePath": "generated/provider-e2e-generated/replicate-output.png",
+      "sourceUrl": "https://replicate.delivery/xezq/Pi43ffBh7Jm45UFBJoZ8jNo1eY4fCKQ9mxfgYBdNaBrrT4w2C/out-0.png",
+      "width": 1024,
+      "height": 768,
+      "durationSeconds": 1.0,
+      "fps": 1.0
+    }
+  ],
+  "createdAt": "2026-07-05T20:29:16.291459+00:00",
+  "parentAssetId": null,
+  "retryOfAssetId": null
+}

@@ -1,0 +1,39 @@
+{
+  "id": "shadertoy-glowing-marbling-black-v1",
+  "version": 1,
+  "title": "glowingMarblingBlack",
+  "sourceKind": "built_in",
+  "category": "procedural",
+  "shaderProfileId": "shadertoy-glowing-marbling-black-v1",
+  "sourceUrl": "https://www.shadertoy.com/view/WtdXR8",
+  "license": "Video Creater original procedural variant; ShaderToy URL retained as visual reference",
+  "shaderRef": "shader.frag",
+  "utilityRefs": [
+    "shared/utils.glsl"
+  ],
+  "placement": {
+    "trackKind": "hyperframe_scene",
+    "defaultStartSeconds": 0.0
+  },
+  "renderContract": {
+    "dimensions": "project",
+    "fps": "project",
+    "alpha": false
+  },
+  "preview": {
+    "thumbnailKind": "css",
+    "accentColor": "#f8fafc",
+    "secondaryColor": "#475569",
+    "description": "black marbling field with thin luminous veins and restrained monochrome glow"
+  },
+  "visualTreatment": "black marbling field with thin luminous veins and restrained monochrome glow",
+  "motion": "slow fluid advection with breathing vein brightness and no hard flashes",
+  "safeZone": "keep central veins below caption dominance and preserve 10% margins",
+  "avoid": "strobing, blown-out white vein slabs, muddy low-contrast fields, and static holds",
+  "agentSummary": "shadertoy-glowing-marbling-black-v1: glowingMarblingBlack. kind shader_background. black marbling field with thin luminous veins and restrained monochrome glow",
+  "notes": [
+    "Video Creater original procedural variant tuned from the visual reference, not a direct ShaderToy source port.",
+    "Uses shared Video Creater procedural utilities; no external sampler uniforms, mouse input, remote resources, or copied ShaderToy source are required."
+  ],
+  "defaultDurationSeconds": 4.0
+}

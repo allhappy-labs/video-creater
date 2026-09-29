@@ -1,0 +1,39 @@
+{
+  "id": "shadertoy-looping-clouds-v1",
+  "version": 1,
+  "title": "looping clouds",
+  "sourceKind": "built_in",
+  "category": "clouds",
+  "shaderProfileId": "shadertoy-looping-clouds-v1",
+  "sourceUrl": "https://www.shadertoy.com/view/33cGDj",
+  "license": "Video Creater original procedural variant; ShaderToy URL retained as visual reference",
+  "shaderRef": "shader.frag",
+  "utilityRefs": [
+    "shared/utils.glsl"
+  ],
+  "placement": {
+    "trackKind": "hyperframe_scene",
+    "defaultStartSeconds": 0.0
+  },
+  "renderContract": {
+    "dimensions": "project",
+    "fps": "project",
+    "alpha": false
+  },
+  "preview": {
+    "thumbnailKind": "css",
+    "accentColor": "#a78bfa",
+    "secondaryColor": "#22d3ee",
+    "description": "looping abstract cloud tunnel with colorful repeated line and plane forms"
+  },
+  "visualTreatment": "looping abstract cloud tunnel with colorful repeated line and plane forms",
+  "motion": "seamless forward march through repeated soft geometry with palette cycling",
+  "safeZone": "keep brightest cloud lines inside central 80% and reserve 10% margins for overlays",
+  "avoid": "strobing, hard white flashes, excessive particle noise, and static flat cloud cards",
+  "agentSummary": "shadertoy-looping-clouds-v1: looping clouds. kind shader_background. looping abstract cloud tunnel with colorful repeated line and plane forms",
+  "notes": [
+    "Video Creater original procedural variant tuned from the visual reference, not a direct ShaderToy source port.",
+    "Uses shared Video Creater procedural utilities; no external sampler uniforms, mouse input, remote resources, or copied ShaderToy source are required."
+  ],
+  "defaultDurationSeconds": 4.0
+}

@@ -1,0 +1,39 @@
+{
+  "id": "shadertoy-neon-lit-hexagons-v1",
+  "version": 1,
+  "title": "Neon Lit Hexagons",
+  "sourceKind": "built_in",
+  "category": "geometry",
+  "shaderProfileId": "shadertoy-neon-lit-hexagons-v1",
+  "sourceUrl": "https://www.shadertoy.com/view/MsVfz1",
+  "license": "Video Creater original procedural variant; ShaderToy URL retained as visual reference",
+  "shaderRef": "shader.frag",
+  "utilityRefs": [
+    "shared/utils.glsl"
+  ],
+  "placement": {
+    "trackKind": "hyperframe_scene",
+    "defaultStartSeconds": 0.0
+  },
+  "renderContract": {
+    "dimensions": "project",
+    "fps": "project",
+    "alpha": false
+  },
+  "preview": {
+    "thumbnailKind": "css",
+    "accentColor": "#f97316",
+    "secondaryColor": "#38bdf8",
+    "description": "raymarched hex pylon floor with intermittent neon light bands and glossy dark material"
+  },
+  "visualTreatment": "raymarched hex pylon floor with intermittent neon light bands and glossy dark material",
+  "motion": "low camera glide through a tunnel of pulsing hex columns and volumetric glow",
+  "safeZone": "keep glow bands below lower captions and leave 10% margins clear of hard highlights",
+  "avoid": "strobing, overly saturated blobs, texture-dependent surfaces, and static grid wallpaper",
+  "agentSummary": "shadertoy-neon-lit-hexagons-v1: Neon Lit Hexagons. kind shader_background. raymarched hex pylon floor with intermittent neon light bands and glossy dark material",
+  "notes": [
+    "Video Creater original procedural variant tuned from the visual reference, not a direct ShaderToy source port.",
+    "Uses shared Video Creater procedural utilities; no external sampler uniforms, mouse input, remote resources, or copied ShaderToy source are required."
+  ],
+  "defaultDurationSeconds": 4.0
+}

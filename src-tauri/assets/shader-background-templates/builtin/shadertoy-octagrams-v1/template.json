@@ -1,0 +1,39 @@
+{
+  "id": "shadertoy-octagrams-v1",
+  "version": 1,
+  "title": "Octagrams",
+  "sourceKind": "built_in",
+  "category": "procedural",
+  "shaderProfileId": "shadertoy-octagrams-v1",
+  "sourceUrl": "https://www.shadertoy.com/view/tlVGDt",
+  "license": "Video Creater original procedural variant; ShaderToy URL retained as visual reference",
+  "shaderRef": "shader.frag",
+  "utilityRefs": [
+    "shared/utils.glsl"
+  ],
+  "placement": {
+    "trackKind": "hyperframe_scene",
+    "defaultStartSeconds": 0.0
+  },
+  "renderContract": {
+    "dimensions": "project",
+    "fps": "project",
+    "alpha": false
+  },
+  "preview": {
+    "thumbnailKind": "css",
+    "accentColor": "#38bdf8",
+    "secondaryColor": "#10b981",
+    "description": "recursive octagram box tunnel with blue-green volumetric glow and centered depth"
+  },
+  "visualTreatment": "recursive octagram box tunnel with blue-green volumetric glow and centered depth",
+  "motion": "forward raymarch drift with slow rotation and breathing repeated geometry",
+  "safeZone": "keep the brightest octagram forms inside the central 80% and preserve 10% edge margins",
+  "avoid": "strobing, opaque caption slabs, flat static boxes, and unsafe high-frequency shimmer",
+  "agentSummary": "shadertoy-octagrams-v1: Octagrams. kind shader_background. recursive octagram box tunnel with blue-green volumetric glow and centered depth",
+  "notes": [
+    "Video Creater original procedural variant tuned from the visual reference, not a direct ShaderToy source port.",
+    "Uses shared Video Creater procedural utilities; no external sampler uniforms, mouse input, remote resources, or copied ShaderToy source are required."
+  ],
+  "defaultDurationSeconds": 4.0
+}

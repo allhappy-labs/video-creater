@@ -1,0 +1,57 @@
+{
+  "durationSeconds": 1.0,
+  "embeddingModel": null,
+  "frames": [
+    {
+      "description": "replicate-output.png generated visual frame at opening from generated/provider-e2e-generated/replicate-output.png",
+      "index": 0,
+      "label": "replicate-output.png",
+      "relativeFramePath": "search/visual/provider-e2e-generated-replicate-output/frames/frame-000000.png",
+      "tags": [
+        "e2e",
+        "generated",
+        "output",
+        "png",
+        "provider",
+        "replicate"
+      ],
+      "timeSeconds": 0.0
+    },
+    {
+      "description": "replicate-output.png generated visual frame at middle from generated/provider-e2e-generated/replicate-output.png",
+      "index": 1,
+      "label": "replicate-output.png",
+      "relativeFramePath": "search/visual/provider-e2e-generated-replicate-output/frames/frame-000001.png",
+      "tags": [
+        "e2e",
+        "generated",
+        "output",
+        "png",
+        "provider",
+        "replicate"
+      ],
+      "timeSeconds": 0.5
+    },
+    {
+      "description": "replicate-output.png generated visual frame at closing from generated/provider-e2e-generated/replicate-output.png",
+      "index": 2,
+      "label": "replicate-output.png",
+      "relativeFramePath": "search/visual/provider-e2e-generated-replicate-output/frames/frame-000002.png",
+      "tags": [
+        "e2e",
+        "generated",
+        "output",
+        "png",
+        "provider",
+        "replicate"
+      ],
+      "timeSeconds": 1.0
+    }
+  ],
+  "mediaId": "provider-e2e-generated-replicate-output",
+  "mediaKind": "generated",
+  "relativePath": "generated/provider-e2e-generated/replicate-output.png",
+  "schemaVersion": 1,
+  "status": "notInstalled",
+  "visualStatus": "notInstalled"
+}

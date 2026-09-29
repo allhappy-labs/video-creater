@@ -1,0 +1,73 @@
+{
+  "schemaVersion": 2,
+  "description": "Proposed Linux x64 browser visual QA baseline captured with repository-pinned Playwright 1.63.0 and its pinned Chromium revision. System fonts are those available on the Linux verification host; no external font installation is assumed.",
+  "screenshots": [
+    "home-desktop.png",
+    "home-narrow.png",
+    "home-missing-recent-desktop.png",
+    "home-missing-recent-narrow.png",
+    "home-palmier-desktop.png",
+    "settings-desktop.png",
+    "settings-narrow.png"
+  ],
+  "platformThresholds": {
+    "linux-x64": {
+      "threshold": 0.01,
+      "channelThreshold": 4
+    }
+  },
+  "artifacts": {
+    "home-desktop.png": {
+      "width": 1440,
+      "height": 960,
+      "bytes": 53946,
+      "sha256": "39c85b0308fc7ac7244c62017f3a2e1b476b25f8c876ea59713e0a90c0be445b"
+    },
+    "home-narrow.png": {
+      "width": 390,
+      "height": 844,
+      "bytes": 47859,
+      "sha256": "219237c56dbea4ece79ca203a873b13c38ffc0f3ca7158f33d799663ff3e4e59"
+    },
+    "home-missing-recent-desktop.png": {
+      "width": 1440,
+      "height": 960,
+      "bytes": 69510,
+      "sha256": "5f3c83a5920e6a23dfe866bf6acd3a6989bf71fb8a813ba190353bb2d472ceb8"
+    },
+    "home-missing-recent-narrow.png": {
+      "width": 390,
+      "height": 844,
+      "bytes": 58231,
+      "sha256": "5cef49b77d57e5fba5c65fc09ad3d58c85b2c6fa7039bb3c935fc0c8404758dd"
+    },
+    "home-palmier-desktop.png": {
+      "width": 1440,
+      "height": 960,
+      "bytes": 69513,
+      "sha256": "f755b8f0b7092225a4b10f7902d480fe3bca8979a3b1fbd9af38c0429d0cb4e4"
+    },
+    "settings-desktop.png": {
+      "width": 1440,
+      "height": 960,
+      "bytes": 85156,
+      "sha256": "1251ca63e0f5fc4b37c0569140574d0a10167c7b99df4c7e5973b7871796ffbb"
+    },
+    "settings-narrow.png": {
+      "width": 390,
+      "height": 844,
+      "bytes": 56531,
+      "sha256": "bf90a6f1eea9029db879c6674b9acf63fa02ff508b38918232fb56c0e2757300"
+    }
+  },
+  "environment": {
+    "os": "Ubuntu 24.04.4 x64",
+    "playwright": "1.63.0",
+    "chromium": "153.0.8010.12",
+    "fonts": {
+      "Inter": "DejaVu Sans Book (DejaVuSans.ttf)",
+      "sans-serif": "DejaVu Sans Book (DejaVuSans.ttf)"
+    },
+    "fontPolicy": "System fonts from the verification host; no external font installation."
+  }
+}

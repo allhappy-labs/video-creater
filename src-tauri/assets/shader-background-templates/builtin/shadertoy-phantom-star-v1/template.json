@@ -1,0 +1,39 @@
+{
+  "id": "shadertoy-phantom-star-v1",
+  "version": 1,
+  "title": "Phantom Star",
+  "sourceKind": "built_in",
+  "category": "geometry",
+  "shaderProfileId": "shadertoy-phantom-star-v1",
+  "sourceUrl": "https://www.shadertoy.com/view/ttKGDt",
+  "license": "Video Creater original procedural variant; ShaderToy URL retained as visual reference",
+  "shaderRef": "shader.frag",
+  "utilityRefs": [
+    "shared/utils.glsl"
+  ],
+  "placement": {
+    "trackKind": "hyperframe_scene",
+    "defaultStartSeconds": 0.0
+  },
+  "renderContract": {
+    "dimensions": "project",
+    "fps": "project",
+    "alpha": false
+  },
+  "preview": {
+    "thumbnailKind": "css",
+    "accentColor": "#67e8f9",
+    "secondaryColor": "#64748b",
+    "description": "ghostly fivefold star lattice with pale cyan volumetric trails"
+  },
+  "visualTreatment": "ghostly fivefold star lattice with pale cyan volumetric trails",
+  "motion": "camera flies through repeating mirrored star boxes with periodic light pulses",
+  "safeZone": "keep star convergence near center and leave 10% margins free of bright spikes",
+  "avoid": "strobing, hard white flashes, static text cards, and dense unreadable noise",
+  "agentSummary": "shadertoy-phantom-star-v1: Phantom Star. kind shader_background. ghostly fivefold star lattice with pale cyan volumetric trails",
+  "notes": [
+    "Video Creater original procedural variant tuned from the visual reference, not a direct ShaderToy source port.",
+    "Uses shared Video Creater procedural utilities; no external sampler uniforms, mouse input, remote resources, or copied ShaderToy source are required."
+  ],
+  "defaultDurationSeconds": 4.0
+}

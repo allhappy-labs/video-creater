@@ -1,0 +1,84 @@
+{
+  "schemaVersion": 1,
+  "projectId": "provider-e2e-project",
+  "projectUpdatedAt": "2026-07-05T20:29:16.291459+00:00",
+  "visualStatus": "notInstalled",
+  "visualIndexedAssetCount": 0,
+  "visualIndexedMediaIds": [],
+  "spokenStatus": "noTranscripts",
+  "mediaCount": 1,
+  "transcriptCount": 0,
+  "generatedAssetCount": 1,
+  "timelineItemCount": 0,
+  "spoken": [],
+  "metadata": [
+    {
+      "text": "provider-e2e-generated-replicate-output  generated/provider-e2e-generated/replicate-output.png Generated 1 ",
+      "mediaId": "provider-e2e-generated-replicate-output",
+      "timelineItemId": null,
+      "trackId": null,
+      "startSeconds": null,
+      "endSeconds": null,
+      "reason": "matched media metadata",
+      "media": {
+        "durationSeconds": 1.0,
+        "folderId": null,
+        "fps": 1.0,
+        "height": 768,
+        "id": "provider-e2e-generated-replicate-output",
+        "kind": "generated",
+        "name": null,
+        "relativePath": "generated/provider-e2e-generated/replicate-output.png",
+        "width": 1024
+      },
+      "label": null
+    }
+  ],
+  "generated": [
+    {
+      "assetId": "provider-e2e-generated",
+      "mediaIds": [
+        "provider-e2e-generated-replicate-output"
+      ],
+      "text": "provider-e2e-generated Provider E2E still Video Creater parity evidence product launch frame provider-e2e-generated-replicate-output ",
+      "generatedAsset": {
+        "createdAt": "2026-07-05T20:29:16.291459+00:00",
+        "id": "provider-e2e-generated",
+        "kind": "generated",
+        "model": {
+          "id": "black-forest-labs/flux-schnell",
+          "provider": "replicate"
+        },
+        "name": "Provider E2E still",
+        "outputs": [
+          {
+            "durationSeconds": 1.0,
+            "fps": 1.0,
+            "height": 768,
+            "mediaId": "provider-e2e-generated-replicate-output",
+            "relativePath": "generated/provider-e2e-generated/replicate-output.png",
+            "sourceUrl": "https://replicate.delivery/xezq/Pi43ffBh7Jm45UFBJoZ8jNo1eY4fCKQ9mxfgYBdNaBrrT4w2C/out-0.png",
+            "width": 1024
+          }
+        ],
+        "parentAssetId": null,
+        "prompt": "Video Creater parity evidence product launch frame",
+        "references": {
+          "firstFrameMediaId": null,
+          "lastFrameMediaId": null,
+          "mediaIds": []
+        },
+        "retryOfAssetId": null,
+        "schemaVersion": 1,
+        "settings": {
+          "aspectRatio": "4:3",
+          "durationSeconds": null,
+          "fps": null,
+          "height": 768,
+          "width": 1024
+        },
+        "status": "completed"
+      }
+    }
+  ]
+}

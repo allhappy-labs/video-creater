@@ -1,0 +1,39 @@
+{
+  "id": "shadertoy-another-cube-v1",
+  "version": 1,
+  "title": "another cube",
+  "sourceKind": "built_in",
+  "category": "geometry",
+  "shaderProfileId": "shadertoy-another-cube-v1",
+  "sourceUrl": "https://www.shadertoy.com/view/3XdXRr",
+  "license": "Video Creater original procedural variant; ShaderToy URL retained as visual reference",
+  "shaderRef": "shader.frag",
+  "utilityRefs": [
+    "shared/utils.glsl"
+  ],
+  "placement": {
+    "trackKind": "hyperframe_scene",
+    "defaultStartSeconds": 0.0
+  },
+  "renderContract": {
+    "dimensions": "project",
+    "fps": "project",
+    "alpha": false
+  },
+  "preview": {
+    "thumbnailKind": "css",
+    "accentColor": "#60a5fa",
+    "secondaryColor": "#0f172a",
+    "description": "rounded reflective cube with electric blue rim glow and procedural floor reflection"
+  },
+  "visualTreatment": "rounded reflective cube with electric blue rim glow and procedural floor reflection",
+  "motion": "slow tumbling cube rotation with shell glow and moving reflected floor bands",
+  "safeZone": "keep the cube inside the central 80% and preserve 10% edge margins",
+  "avoid": "strobing, plain filled cube holds, blown highlights, and texture-dependent reflections",
+  "agentSummary": "shadertoy-another-cube-v1: another cube. kind shader_background. rounded reflective cube with electric blue rim glow and procedural floor reflection",
+  "notes": [
+    "Video Creater original procedural variant tuned from the visual reference, not a direct ShaderToy source port.",
+    "Uses shared Video Creater procedural utilities; no external sampler uniforms, mouse input, remote resources, or copied ShaderToy source are required."
+  ],
+  "defaultDurationSeconds": 4.0
+}

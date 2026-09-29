@@ -1,0 +1,354 @@
+# Knip raw evidence — 2026-09-11
+
+Environment: `/home/olhapi/projects/video-creater`
+Knip version selected by npx: `6.35.1`
+
+## Baseline
+
+Command: `rtk npx knip --no-progress`
+Exit: 1
+
+```text
+Unused files (4)
+.knip-frontend-review.mjs  
+postcss.config.js          
+src/components/ui/card.tsx 
+src/lib/provider-account.ts
+Unused dependencies (2)
+@dnd-kit/core  package.json:84:6
+dnd-timeline   package.json:90:6
+Unused devDependencies (1)
+autoprefixer  package.json:105:6
+Unlisted binaries (13)
+ffmpeg           scripts/audio-automation-e2e.mjs       
+rustc            scripts/build-audio-enhancer.mjs       
+swift            scripts/build-audio-enhancer.mjs       
+rustc            scripts/build-avfoundation-exporter.mjs
+swift            scripts/build-avfoundation-exporter.mjs
+rustc            scripts/build-compatibility-decoder.mjs
+swift            scripts/build-fluidaudio-helper.mjs    
+pkg-config       scripts/build-gstreamer-runtime.mjs    
+cc               scripts/build-gstreamer-runtime.mjs    
+brew             scripts/build-gstreamer-runtime.mjs    
+rustc            scripts/build-precompose-sidecar.mjs   
+swift            scripts/build-semantic-encoder.mjs     
+gst-inspect-1.0  scripts/check-native-runtime.mjs       
+Unused exports (23)
+manifestSchemaVersion                                       scripts/gstreamer-runtime-policy.mjs:5:14                   
+CONTROLLER_OWNED_DIRTY_PATHS                                scripts/release-source-evidence.mjs:3:14                    
+generationModelSummary                            function  …/components/settings/generation-model-multiselect.tsx:63:17
+formatStorageBytes                                function  src/components/settings/storage-settings.tsx:57:17          
+buttonVariants                                              src/components/ui/button.tsx:49:18                          
+captionStyleDetails                                         src/components/workspace/caption-inspector.tsx:92:14        
+matteAspectOptions                                          src/components/workspace/matte-sheet.tsx:12:14              
+mattePreviewSize                                  function  src/components/workspace/matte-sheet.tsx:45:17              
+visualBlendModes                                            src/components/workspace/source-clip-inspector.tsx:71:14    
+supportedMediaFileExtensions                                src/lib/media-import.ts:3:14                                
+punchyCaptionTemplate                                       src/lib/motion-templates.ts:105:14                          
+metricCalloutTemplate                                       src/lib/motion-templates.ts:141:14                          
+chapterCardTemplate                                         src/lib/motion-templates.ts:177:14                          
+trackingHighlightTemplate                                   src/lib/motion-templates.ts:213:14                          
+nativeMenuCommands                                          src/lib/native-menu.ts:6:14                                 
+canonicalProjectActionKeyframeEasing              function  src/lib/project.ts:1001:17                                  
+canonicalizeProjectActionKeyframes                function  src/lib/project.ts:1019:17                                  
+captureCanonicalPreviewFrameInSplitProjectFolder  function  src/lib/project.ts:3149:23                                  
+renderWebmToSplitProjectFolder                    function  src/lib/project.ts:3371:23                                  
+systemHealthOverall                               function  src/lib/settings/health.ts:89:17                            
+timelinePreviewLayerGeometry                      function  src/lib/timeline-preview.ts:318:17                          
+isTimelinePreviewItemActiveAt                     function  src/lib/timeline-preview.ts:994:17                          
+cancelModelDownload                               function  src/lib/transcription-models.ts:110:17                      
+Unused exported types (112)
+ModelAction                            type       src/components/settings/models-settings.tsx:33:13             
+ModelImportAction                      type       src/components/settings/models-settings.tsx:34:13             
+OperationAction                        type       src/components/settings/models-settings.tsx:38:13             
+SettingsCategory                       type       src/components/settings/settings.tsx:62:15                    
+AppSettingsCategory                    type       src/components/settings/settings.tsx:63:15                    
+AppSettingsTarget                      type       src/components/settings/settings.tsx:63:36                    
+ButtonProps                            interface  src/components/ui/button.tsx:29:18                            
+TextareaProps                          type       src/components/ui/textarea.tsx:4:13                           
+AgentTimelineClipTrimUpdate            interface  src/components/workspace/agent-panel.tsx:120:18               
+CaptionWordEasing                      type       src/components/workspace/caption-inspector.tsx:19:13          
+CaptionTranscriptionMode               type       src/components/workspace/captions-workbench.tsx:15:13         
+CaptionSourceOption                    interface  src/components/workspace/captions-workbench.tsx:17:18         
+ProposalEdlRow                         interface  src/components/workspace/codex-proposal-review.tsx:9:18       
+ProposalVisualRole                     type       src/components/workspace/codex-proposal-review.tsx:17:13      
+ProposalVisualRow                      interface  src/components/workspace/codex-proposal-review.tsx:26:18      
+CodexProposalTimelineTrack             interface  src/components/workspace/codex-proposal-review.tsx:41:18      
+ProposalProjectActionRow               interface  src/components/workspace/codex-proposal-review.tsx:54:18      
+ContextualInspectorTab                 interface  src/components/workspace/contextual-inspector-tabs.tsx:4:18   
+ExportCapabilityStatus                 type       src/components/workspace/export-sheet.tsx:44:13               
+MediaGenerationTimelineTarget          interface  src/components/workspace/media-bin.tsx:59:18                  
+GenerationConfigurationReadiness       interface  src/components/workspace/media-bin.tsx:280:18                 
+TextTreatment                          type       src/components/workspace/text-library-panel.tsx:5:13          
+RippleInsertPreview                    interface  src/components/workspace/timeline-editor.tsx:382:18           
+TimelineRippleTrimPreviewPlan          interface  src/components/workspace/timeline-editor.tsx:394:18           
+TimelineItemToolMode                   type       src/components/workspace/timeline-item.tsx:14:13              
+TimelineResizeEdge                     type       src/components/workspace/timeline-item.tsx:15:13              
+TimelinePreviewIssueState              type       src/components/workspace/timeline-preview-compositor.tsx:32:13
+CaptionStyle                           type       src/lib/edit.ts:3:13                                          
+EditorGlobalDestination                type       src/lib/editor-information-architecture.ts:5:13               
+EditorLayoutMode                       type       src/lib/editor-layout-budget.ts:3:13                          
+InspectorPresentation                  type       src/lib/editor-layout-budget.ts:4:13                          
+ModernEditorVisualQaProjectState       type       src/lib/modern-editor-visual-qa-fixtures.ts:30:13             
+ModernEditorVisualQaComponentState     type       src/lib/modern-editor-visual-qa-fixtures.ts:40:13             
+MotionTemplateCategory                 type       src/lib/motion-templates.ts:5:13                              
+MotionTemplateKind                     type       src/lib/motion-templates.ts:13:13                             
+MotionTemplateFieldDefinition          interface  src/lib/motion-templates.ts:23:18                             
+NativeMenuCommand                      type       src/lib/native-menu.ts:34:13                                  
+MediaAnalysisMoment                    interface  src/lib/project.ts:30:18                                      
+ProjectMediaSilenceRange               interface  src/lib/project.ts:39:18                                      
+ProjectMediaVisualStatus               type       src/lib/project.ts:54:13                                      
+ProjectMediaSpokenStatus               type       src/lib/project.ts:60:13                                      
+ProjectMediaSearchResultItem           interface  src/lib/project.ts:62:18                                      
+GeneratedAssetStatus                   type       src/lib/project.ts:100:13                                     
+GenerationModel                        interface  src/lib/project.ts:126:18                                     
+GeneratedAssetReferences               interface  src/lib/project.ts:131:18                                     
+GeneratedAssetOutput                   interface  src/lib/project.ts:164:18                                     
+RenderReportStatus                     type       src/lib/project.ts:174:13                                     
+RenderReportCheckStatus                type       src/lib/project.ts:175:13                                     
+ProjectExportArtifactKind              type       src/lib/project.ts:192:13                                     
+ProjectWebmRenderResult                interface  src/lib/project.ts:210:18                                     
+ExportPolicyStatus                     type       src/lib/project.ts:238:13                                     
+RenderReportStreams                    interface  src/lib/project.ts:270:18                                     
+TemporalWorkflowMetadata               interface  src/lib/project.ts:284:18                                     
+ProjectJobProviderRequest              interface  src/lib/project.ts:302:18                                     
+TemporalWorkerToolStatus               interface  src/lib/project.ts:330:18                                     
+TranscriptRepairKind                   type       src/lib/project.ts:359:13                                     
+TranscriptSegment                      interface  src/lib/project.ts:372:18                                     
+ImportSkippedFile                      interface  src/lib/project.ts:454:18                                     
+CodexProposalClip                      interface  src/lib/project.ts:496:18                                     
+ProjectAgentSessionTurn                interface  src/lib/project.ts:540:18                                     
+ProjectActionMove                      interface  src/lib/project.ts:895:18                                     
+ProjectActionReorder                   interface  src/lib/project.ts:901:18                                     
+ProjectActionResize                    interface  src/lib/project.ts:908:18                                     
+ProjectActionTrim                      interface  src/lib/project.ts:913:18                                     
+ProjectActionSplit                     interface  src/lib/project.ts:948:18                                     
+ProjectActionKeyframeEasing            type       src/lib/project.ts:997:13                                     
+ProjectActionItemPropertiesUpdate      interface  src/lib/project.ts:1045:18                                    
+VisualEffectParamDescriptor            interface  src/lib/project.ts:1089:18                                    
+ProjectActionTemplateUpdate            interface  src/lib/project.ts:1147:18                                    
+ProjectActionTextOverlayUpdate         interface  src/lib/project.ts:1154:18                                    
+ProjectActionCaptionRepair             interface  src/lib/project.ts:1176:18                                    
+ProjectActionTranscriptWordEdit        interface  src/lib/project.ts:1187:18                                    
+ProjectActionGeneratedAsset            interface  src/lib/project.ts:1197:18                                    
+ProjectActionReplaceGeneratedOutput    interface  src/lib/project.ts:1214:18                                    
+ProjectActionGeneratedAssetCompletion  interface  src/lib/project.ts:1219:18                                    
+PrecomposePreviewReport                interface  src/lib/project.ts:3103:18                                    
+PreparedPreviewFrameSequence           interface  src/lib/project.ts:3123:18                                    
+PreparedPreviewFrameResult             interface  src/lib/project.ts:3139:18                                    
+RenderGraphicsReport                   interface  src/lib/render.ts:9:18                                        
+RenderReportSummary                    interface  src/lib/render.ts:21:18                                       
+RenderPipelineError                    interface  src/lib/render.ts:40:18                                       
+RenderStageReport                      interface  src/lib/render.ts:48:18                                       
+RenderPerformanceSummary               interface  src/lib/render.ts:55:18                                       
+RenderPreviewComparisonFrame           interface  src/lib/render.ts:60:18                                       
+SettingsHealthCommandError             interface  src/lib/settings/health.ts:35:18                              
+SettingsOperationError                 interface  src/lib/settings/operations.ts:22:18                          
+SettingsOperationsCommandError         interface  src/lib/settings/operations.ts:45:18                          
+ProviderValidationState                type       src/lib/settings/providers.ts:6:13                            
+NotificationPermissionStatus           type       src/lib/settings/render-system.ts:24:13                       
+SkillRepairReport                      interface  src/lib/settings/skills.ts:11:18                              
+SkillVerification                      interface  src/lib/settings/skills.ts:17:18                              
+StorageCleanupPreviewItem              interface  src/lib/settings/storage.ts:10:18                             
+ProviderId                             type       src/lib/settings/target.ts:1:13                               
+ShaderBackgroundTemplateSourceKind     type       src/lib/shader-background-templates.ts:4:13                   
+ShaderBackgroundTemplateCategory       type       src/lib/shader-background-templates.ts:5:13                   
+TimelineEditReasonCode                 type       src/lib/timeline-edit-evaluator.ts:18:13                      
+TimelineEditReason                     interface  src/lib/timeline-edit-evaluator.ts:20:18                      
+TimelineEditSnapInput                  interface  src/lib/timeline-edit-evaluator.ts:50:18                      
+TimelinePreviewStatus                  type       src/lib/timeline-preview.ts:4:13                              
+TimelinePreviewOverlayKind             type       src/lib/timeline-preview.ts:9:13                              
+TimelinePreviewCaptionPlacement        type       src/lib/timeline-preview.ts:10:13                             
+TimelinePreviewCaptionStylePreset      type       src/lib/timeline-preview.ts:11:13                             
+TimelinePreviewColorGrade              interface  src/lib/timeline-preview.ts:16:18                             
+TimelinePreviewEffects                 interface  src/lib/timeline-preview.ts:22:18                             
+TimelinePreviewOverlayLayer            interface  src/lib/timeline-preview.ts:68:18                             
+TimelinePreviewCaptionWordStyle        interface  src/lib/timeline-preview.ts:90:18                             
+TimelinePreviewAudioLayer              interface  src/lib/timeline-preview.ts:97:18                             
+TimelineSource                         type       src/lib/timeline.ts:13:13                                     
+ModelInstallStatus                     type       src/lib/transcription-models.ts:4:13                          
+TranscriptionInstallStatus             type       src/lib/transcription-models.ts:13:13                         
+TranscriptionRuntimeSelection          type       src/lib/transcription-models.ts:14:13                         
+WorkspaceLayoutPreset                  type       src/lib/workspace-layout-state.ts:1:13                        
+Duplicate exports (1)
+defaultAppPreferences|defaultAppSettingsPreferences  src/lib/app-settings.ts
+```
+
+## Frontend production graph
+
+Temporary config:
+
+```js
+export default {
+  entry: ["src/main.tsx"],
+  project: ["src/**/*.{ts,tsx}", "!src/**/*.{test,spec}.{ts,tsx}"],
+  ignoreDependencies: ["autoprefixer"],
+};
+```
+
+Command: `rtk npx knip --config .knip-frontend-review.mjs --no-progress`
+Exit: 1
+
+```text
+Unused files (2)
+src/components/ui/card.tsx 
+src/lib/provider-account.ts
+Unused dependencies (2)
+@dnd-kit/core  package.json:84:6
+dnd-timeline   package.json:90:6
+Unlisted binaries (13)
+ffmpeg           scripts/audio-automation-e2e.mjs       
+rustc            scripts/build-audio-enhancer.mjs       
+swift            scripts/build-audio-enhancer.mjs       
+rustc            scripts/build-avfoundation-exporter.mjs
+swift            scripts/build-avfoundation-exporter.mjs
+rustc            scripts/build-compatibility-decoder.mjs
+swift            scripts/build-fluidaudio-helper.mjs    
+pkg-config       scripts/build-gstreamer-runtime.mjs    
+cc               scripts/build-gstreamer-runtime.mjs    
+brew             scripts/build-gstreamer-runtime.mjs    
+rustc            scripts/build-precompose-sidecar.mjs   
+swift            scripts/build-semantic-encoder.mjs     
+gst-inspect-1.0  scripts/check-native-runtime.mjs       
+Unused exports (21)
+generationModelSummary                            function  …/components/settings/generation-model-multiselect.tsx:63:17
+formatStorageBytes                                function  src/components/settings/storage-settings.tsx:57:17          
+buttonVariants                                              src/components/ui/button.tsx:49:18                          
+captionStyleDetails                                         src/components/workspace/caption-inspector.tsx:92:14        
+matteAspectOptions                                          src/components/workspace/matte-sheet.tsx:12:14              
+mattePreviewSize                                  function  src/components/workspace/matte-sheet.tsx:45:17              
+visualBlendModes                                            src/components/workspace/source-clip-inspector.tsx:71:14    
+supportedMediaFileExtensions                                src/lib/media-import.ts:3:14                                
+punchyCaptionTemplate                                       src/lib/motion-templates.ts:105:14                          
+metricCalloutTemplate                                       src/lib/motion-templates.ts:141:14                          
+chapterCardTemplate                                         src/lib/motion-templates.ts:177:14                          
+trackingHighlightTemplate                                   src/lib/motion-templates.ts:213:14                          
+nativeMenuCommands                                          src/lib/native-menu.ts:6:14                                 
+canonicalProjectActionKeyframeEasing              function  src/lib/project.ts:1001:17                                  
+canonicalizeProjectActionKeyframes                function  src/lib/project.ts:1019:17                                  
+captureCanonicalPreviewFrameInSplitProjectFolder  function  src/lib/project.ts:3149:23                                  
+renderWebmToSplitProjectFolder                    function  src/lib/project.ts:3371:23                                  
+systemHealthOverall                               function  src/lib/settings/health.ts:89:17                            
+timelinePreviewLayerGeometry                      function  src/lib/timeline-preview.ts:318:17                          
+isTimelinePreviewItemActiveAt                     function  src/lib/timeline-preview.ts:994:17                          
+cancelModelDownload                               function  src/lib/transcription-models.ts:110:17                      
+Unused exported types (112)
+ModelAction                            type       src/components/settings/models-settings.tsx:33:13             
+ModelImportAction                      type       src/components/settings/models-settings.tsx:34:13             
+OperationAction                        type       src/components/settings/models-settings.tsx:38:13             
+SettingsCategory                       type       src/components/settings/settings.tsx:62:15                    
+AppSettingsCategory                    type       src/components/settings/settings.tsx:63:15                    
+AppSettingsTarget                      type       src/components/settings/settings.tsx:63:36                    
+ButtonProps                            interface  src/components/ui/button.tsx:29:18                            
+TextareaProps                          type       src/components/ui/textarea.tsx:4:13                           
+AgentTimelineClipTrimUpdate            interface  src/components/workspace/agent-panel.tsx:120:18               
+CaptionWordEasing                      type       src/components/workspace/caption-inspector.tsx:19:13          
+CaptionTranscriptionMode               type       src/components/workspace/captions-workbench.tsx:15:13         
+CaptionSourceOption                    interface  src/components/workspace/captions-workbench.tsx:17:18         
+ProposalEdlRow                         interface  src/components/workspace/codex-proposal-review.tsx:9:18       
+ProposalVisualRole                     type       src/components/workspace/codex-proposal-review.tsx:17:13      
+ProposalVisualRow                      interface  src/components/workspace/codex-proposal-review.tsx:26:18      
+CodexProposalTimelineTrack             interface  src/components/workspace/codex-proposal-review.tsx:41:18      
+ProposalProjectActionRow               interface  src/components/workspace/codex-proposal-review.tsx:54:18      
+ContextualInspectorTab                 interface  src/components/workspace/contextual-inspector-tabs.tsx:4:18   
+ExportCapabilityStatus                 type       src/components/workspace/export-sheet.tsx:44:13               
+MediaGenerationTimelineTarget          interface  src/components/workspace/media-bin.tsx:59:18                  
+GenerationConfigurationReadiness       interface  src/components/workspace/media-bin.tsx:280:18                 
+TextTreatment                          type       src/components/workspace/text-library-panel.tsx:5:13          
+RippleInsertPreview                    interface  src/components/workspace/timeline-editor.tsx:382:18           
+TimelineRippleTrimPreviewPlan          interface  src/components/workspace/timeline-editor.tsx:394:18           
+TimelineItemToolMode                   type       src/components/workspace/timeline-item.tsx:14:13              
+TimelineResizeEdge                     type       src/components/workspace/timeline-item.tsx:15:13              
+TimelinePreviewIssueState              type       src/components/workspace/timeline-preview-compositor.tsx:32:13
+CaptionStyle                           type       src/lib/edit.ts:3:13                                          
+EditorGlobalDestination                type       src/lib/editor-information-architecture.ts:5:13               
+EditorLayoutMode                       type       src/lib/editor-layout-budget.ts:3:13                          
+InspectorPresentation                  type       src/lib/editor-layout-budget.ts:4:13                          
+ModernEditorVisualQaProjectState       type       src/lib/modern-editor-visual-qa-fixtures.ts:30:13             
+ModernEditorVisualQaComponentState     type       src/lib/modern-editor-visual-qa-fixtures.ts:40:13             
+MotionTemplateCategory                 type       src/lib/motion-templates.ts:5:13                              
+MotionTemplateKind                     type       src/lib/motion-templates.ts:13:13                             
+MotionTemplateFieldDefinition          interface  src/lib/motion-templates.ts:23:18                             
+NativeMenuCommand                      type       src/lib/native-menu.ts:34:13                                  
+MediaAnalysisMoment                    interface  src/lib/project.ts:30:18                                      
+ProjectMediaSilenceRange               interface  src/lib/project.ts:39:18                                      
+ProjectMediaVisualStatus               type       src/lib/project.ts:54:13                                      
+ProjectMediaSpokenStatus               type       src/lib/project.ts:60:13                                      
+ProjectMediaSearchResultItem           interface  src/lib/project.ts:62:18                                      
+GeneratedAssetStatus                   type       src/lib/project.ts:100:13                                     
+GenerationModel                        interface  src/lib/project.ts:126:18                                     
+GeneratedAssetReferences               interface  src/lib/project.ts:131:18                                     
+GeneratedAssetOutput                   interface  src/lib/project.ts:164:18                                     
+RenderReportStatus                     type       src/lib/project.ts:174:13                                     
+RenderReportCheckStatus                type       src/lib/project.ts:175:13                                     
+ProjectExportArtifactKind              type       src/lib/project.ts:192:13                                     
+ProjectWebmRenderResult                interface  src/lib/project.ts:210:18                                     
+ExportPolicyStatus                     type       src/lib/project.ts:238:13                                     
+RenderReportStreams                    interface  src/lib/project.ts:270:18                                     
+TemporalWorkflowMetadata               interface  src/lib/project.ts:284:18                                     
+ProjectJobProviderRequest              interface  src/lib/project.ts:302:18                                     
+TemporalWorkerToolStatus               interface  src/lib/project.ts:330:18                                     
+TranscriptRepairKind                   type       src/lib/project.ts:359:13                                     
+TranscriptSegment                      interface  src/lib/project.ts:372:18                                     
+ImportSkippedFile                      interface  src/lib/project.ts:454:18                                     
+CodexProposalClip                      interface  src/lib/project.ts:496:18                                     
+ProjectAgentSessionTurn                interface  src/lib/project.ts:540:18                                     
+ProjectActionMove                      interface  src/lib/project.ts:895:18                                     
+ProjectActionReorder                   interface  src/lib/project.ts:901:18                                     
+ProjectActionResize                    interface  src/lib/project.ts:908:18                                     
+ProjectActionTrim                      interface  src/lib/project.ts:913:18                                     
+ProjectActionSplit                     interface  src/lib/project.ts:948:18                                     
+ProjectActionKeyframeEasing            type       src/lib/project.ts:997:13                                     
+ProjectActionItemPropertiesUpdate      interface  src/lib/project.ts:1045:18                                    
+VisualEffectParamDescriptor            interface  src/lib/project.ts:1089:18                                    
+ProjectActionTemplateUpdate            interface  src/lib/project.ts:1147:18                                    
+ProjectActionTextOverlayUpdate         interface  src/lib/project.ts:1154:18                                    
+ProjectActionCaptionRepair             interface  src/lib/project.ts:1176:18                                    
+ProjectActionTranscriptWordEdit        interface  src/lib/project.ts:1187:18                                    
+ProjectActionGeneratedAsset            interface  src/lib/project.ts:1197:18                                    
+ProjectActionReplaceGeneratedOutput    interface  src/lib/project.ts:1214:18                                    
+ProjectActionGeneratedAssetCompletion  interface  src/lib/project.ts:1219:18                                    
+PrecomposePreviewReport                interface  src/lib/project.ts:3103:18                                    
+PreparedPreviewFrameSequence           interface  src/lib/project.ts:3123:18                                    
+PreparedPreviewFrameResult             interface  src/lib/project.ts:3139:18                                    
+RenderGraphicsReport                   interface  src/lib/render.ts:9:18                                        
+RenderReportSummary                    interface  src/lib/render.ts:21:18                                       
+RenderPipelineError                    interface  src/lib/render.ts:40:18                                       
+RenderStageReport                      interface  src/lib/render.ts:48:18                                       
+RenderPerformanceSummary               interface  src/lib/render.ts:55:18                                       
+RenderPreviewComparisonFrame           interface  src/lib/render.ts:60:18                                       
+SettingsHealthCommandError             interface  src/lib/settings/health.ts:35:18                              
+SettingsOperationError                 interface  src/lib/settings/operations.ts:22:18                          
+SettingsOperationsCommandError         interface  src/lib/settings/operations.ts:45:18                          
+ProviderValidationState                type       src/lib/settings/providers.ts:6:13                            
+NotificationPermissionStatus           type       src/lib/settings/render-system.ts:24:13                       
+SkillRepairReport                      interface  src/lib/settings/skills.ts:11:18                              
+SkillVerification                      interface  src/lib/settings/skills.ts:17:18                              
+StorageCleanupPreviewItem              interface  src/lib/settings/storage.ts:10:18                             
+ProviderId                             type       src/lib/settings/target.ts:1:13                               
+ShaderBackgroundTemplateSourceKind     type       src/lib/shader-background-templates.ts:4:13                   
+ShaderBackgroundTemplateCategory       type       src/lib/shader-background-templates.ts:5:13                   
+TimelineEditReasonCode                 type       src/lib/timeline-edit-evaluator.ts:18:13                      
+TimelineEditReason                     interface  src/lib/timeline-edit-evaluator.ts:20:18                      
+TimelineEditSnapInput                  interface  src/lib/timeline-edit-evaluator.ts:50:18                      
+TimelinePreviewStatus                  type       src/lib/timeline-preview.ts:4:13                              
+TimelinePreviewOverlayKind             type       src/lib/timeline-preview.ts:9:13                              
+TimelinePreviewCaptionPlacement        type       src/lib/timeline-preview.ts:10:13                             
+TimelinePreviewCaptionStylePreset      type       src/lib/timeline-preview.ts:11:13                             
+TimelinePreviewColorGrade              interface  src/lib/timeline-preview.ts:16:18                             
+TimelinePreviewEffects                 interface  src/lib/timeline-preview.ts:22:18                             
+TimelinePreviewOverlayLayer            interface  src/lib/timeline-preview.ts:68:18                             
+TimelinePreviewCaptionWordStyle        interface  src/lib/timeline-preview.ts:90:18                             
+TimelinePreviewAudioLayer              interface  src/lib/timeline-preview.ts:97:18                             
+TimelineSource                         type       src/lib/timeline.ts:13:13                                     
+ModelInstallStatus                     type       src/lib/transcription-models.ts:4:13                          
+TranscriptionInstallStatus             type       src/lib/transcription-models.ts:13:13                         
+TranscriptionRuntimeSelection          type       src/lib/transcription-models.ts:14:13                         
+WorkspaceLayoutPreset                  type       src/lib/workspace-layout-state.ts:1:13                        
+Duplicate exports (1)
+defaultAppPreferences|defaultAppSettingsPreferences  src/lib/app-settings.ts
+Configuration hints (2)
+src/main.tsx    .knip-frontend-review.mjs  Remove redundant entry pattern                               
+.css            .knip-frontend-review.mjs  Compiled extension excluded by project (imports not followed)
+```
+

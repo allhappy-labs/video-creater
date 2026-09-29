@@ -1,0 +1,503 @@
+{
+  "inputPath": "<dir>/media/second.mp4",
+  "outputPath": "<dir>/renders/full/output.webm",
+  "width": 1280,
+  "height": 720,
+  "fps": 24.0,
+  "quality": "draft",
+  "outputProfile": "webPreview",
+  "clips": [
+    {
+      "sourcePath": "<dir>/media/second.mp4",
+      "timelineStartSeconds": 0.0,
+      "properties": {
+        "sourceHeight": 1080,
+        "sourceWidth": 1920,
+        "timelineDurationSeconds": 4.0
+      },
+      "timelineTrackIndex": 0,
+      "sourceIn": 2.0,
+      "sourceOut": 6.0
+    },
+    {
+      "sourcePath": "<dir>/media/second.mp4",
+      "timelineStartSeconds": 4.0,
+      "properties": {
+        "sourceHeight": 1080,
+        "sourceWidth": 1920,
+        "speed": 2.0,
+        "timelineDurationSeconds": 2.0
+      },
+      "timelineTrackIndex": 0,
+      "sourceIn": 6.0,
+      "sourceOut": 10.0
+    },
+    {
+      "sourcePath": "<dir>/media/still.png",
+      "timelineStartSeconds": 1.0,
+      "properties": {
+        "sourceHeight": 1080,
+        "sourceWidth": 1920,
+        "timelineDurationSeconds": 2.0
+      },
+      "timelineTrackIndex": 5,
+      "sourceIn": 0.0,
+      "sourceOut": 2.0
+    },
+    {
+      "sourcePath": "<dir>/media/second.mp4",
+      "timelineStartSeconds": 6.0,
+      "properties": {
+        "opacity": 1.0,
+        "sourceHeight": 1080,
+        "sourceWidth": 1920,
+        "timelineDurationSeconds": 2.0
+      },
+      "timelineTrackIndex": 7,
+      "sourceIn": 1.0,
+      "sourceOut": 3.0
+    },
+    {
+      "sourcePath": "<dir>/media/second.mp4",
+      "timelineStartSeconds": 8.0,
+      "properties": {
+        "opacity": 1.0,
+        "sourceHeight": 1080,
+        "sourceWidth": 1920,
+        "timelineDurationSeconds": 2.0
+      },
+      "timelineTrackIndex": 7,
+      "sourceIn": 8.0,
+      "sourceOut": 10.0
+    }
+  ],
+  "audioClips": [
+    {
+      "sourcePath": "<dir>/media/music.wav",
+      "timelineStartSeconds": 0.0,
+      "properties": {
+        "timelineDurationSeconds": 3.0
+      },
+      "timelineTrackIndex": 4,
+      "sourceIn": 1.0,
+      "sourceOut": 4.0
+    },
+    {
+      "sourcePath": "<dir>/media/music.wav",
+      "timelineStartSeconds": 3.0,
+      "properties": {
+        "timelineDurationSeconds": 3.0
+      },
+      "timelineTrackIndex": 4,
+      "sourceIn": 10.0,
+      "sourceOut": 13.0
+    }
+  ]
+}
+---
+{
+  "inputPath": "<dir>/media/second.mp4",
+  "outputPath": "<dir>/renders/range/output.webm",
+  "width": 1280,
+  "height": 720,
+  "fps": 24.0,
+  "quality": "draft",
+  "outputProfile": "webPreview",
+  "clips": [
+    {
+      "sourcePath": "<dir>/media/second.mp4",
+      "timelineStartSeconds": 0.0,
+      "properties": {
+        "sourceHeight": 1080,
+        "sourceWidth": 1920,
+        "timelineDurationSeconds": 2.5
+      },
+      "timelineTrackIndex": 0,
+      "sourceIn": 3.5,
+      "sourceOut": 6.0
+    },
+    {
+      "sourcePath": "<dir>/media/second.mp4",
+      "timelineStartSeconds": 2.5,
+      "properties": {
+        "sourceHeight": 1080,
+        "sourceWidth": 1920,
+        "speed": 2.0,
+        "timelineDurationSeconds": 2.0
+      },
+      "timelineTrackIndex": 0,
+      "sourceIn": 6.0,
+      "sourceOut": 10.0
+    },
+    {
+      "sourcePath": "<dir>/media/still.png",
+      "timelineStartSeconds": 0.0,
+      "properties": {
+        "sourceHeight": 1080,
+        "sourceWidth": 1920,
+        "timelineDurationSeconds": 1.5
+      },
+      "timelineTrackIndex": 5,
+      "sourceIn": 0.5,
+      "sourceOut": 2.0
+    },
+    {
+      "sourcePath": "<dir>/media/second.mp4",
+      "timelineStartSeconds": 4.5,
+      "properties": {
+        "opacity": 1.0,
+        "sourceHeight": 1080,
+        "sourceWidth": 1920,
+        "timelineDurationSeconds": 1.0
+      },
+      "timelineTrackIndex": 7,
+      "sourceIn": 1.0,
+      "sourceOut": 2.0
+    }
+  ],
+  "audioClips": [
+    {
+      "sourcePath": "<dir>/media/music.wav",
+      "timelineStartSeconds": 0.0,
+      "properties": {
+        "timelineDurationSeconds": 1.5
+      },
+      "timelineTrackIndex": 4,
+      "sourceIn": 2.5,
+      "sourceOut": 4.0
+    },
+    {
+      "sourcePath": "<dir>/media/music.wav",
+      "timelineStartSeconds": 1.5,
+      "properties": {
+        "timelineDurationSeconds": 3.0
+      },
+      "timelineTrackIndex": 4,
+      "sourceIn": 10.0,
+      "sourceOut": 13.0
+    }
+  ]
+}
+---
+{
+  "inputPath": "<dir>/media/second.mp4",
+  "outputPath": "<dir>/renders/mp4/output.mp4",
+  "width": 1920,
+  "height": 1080,
+  "fps": 24.0,
+  "quality": "final",
+  "outputProfile": "mp4Primary",
+  "clips": [
+    {
+      "sourcePath": "<dir>/media/second.mp4",
+      "timelineStartSeconds": 0.0,
+      "properties": {
+        "sourceHeight": 1080,
+        "sourceWidth": 1920,
+        "timelineDurationSeconds": 4.0
+      },
+      "timelineTrackIndex": 0,
+      "sourceIn": 2.0,
+      "sourceOut": 6.0
+    },
+    {
+      "sourcePath": "<dir>/media/second.mp4",
+      "timelineStartSeconds": 4.0,
+      "properties": {
+        "sourceHeight": 1080,
+        "sourceWidth": 1920,
+        "speed": 2.0,
+        "timelineDurationSeconds": 2.0
+      },
+      "timelineTrackIndex": 0,
+      "sourceIn": 6.0,
+      "sourceOut": 10.0
+    },
+    {
+      "sourcePath": "<dir>/media/still.png",
+      "timelineStartSeconds": 1.0,
+      "properties": {
+        "sourceHeight": 1080,
+        "sourceWidth": 1920,
+        "timelineDurationSeconds": 2.0
+      },
+      "timelineTrackIndex": 5,
+      "sourceIn": 0.0,
+      "sourceOut": 2.0
+    },
+    {
+      "sourcePath": "<dir>/media/second.mp4",
+      "timelineStartSeconds": 6.0,
+      "properties": {
+        "opacity": 1.0,
+        "sourceHeight": 1080,
+        "sourceWidth": 1920,
+        "timelineDurationSeconds": 2.0
+      },
+      "timelineTrackIndex": 7,
+      "sourceIn": 1.0,
+      "sourceOut": 3.0
+    },
+    {
+      "sourcePath": "<dir>/media/second.mp4",
+      "timelineStartSeconds": 8.0,
+      "properties": {
+        "opacity": 1.0,
+        "sourceHeight": 1080,
+        "sourceWidth": 1920,
+        "timelineDurationSeconds": 2.0
+      },
+      "timelineTrackIndex": 7,
+      "sourceIn": 8.0,
+      "sourceOut": 10.0
+    }
+  ],
+  "audioClips": [
+    {
+      "sourcePath": "<dir>/media/music.wav",
+      "timelineStartSeconds": 0.0,
+      "properties": {
+        "timelineDurationSeconds": 3.0
+      },
+      "timelineTrackIndex": 4,
+      "sourceIn": 1.0,
+      "sourceOut": 4.0
+    },
+    {
+      "sourcePath": "<dir>/media/music.wav",
+      "timelineStartSeconds": 3.0,
+      "properties": {
+        "timelineDurationSeconds": 3.0
+      },
+      "timelineTrackIndex": 4,
+      "sourceIn": 10.0,
+      "sourceOut": 13.0
+    }
+  ]
+}
+---
+{
+  "durationSeconds": 10.0,
+  "tracks": [
+    {
+      "id": "root:track-video:0",
+      "name": "Video",
+      "kind": "video",
+      "locked": false,
+      "syncLocked": false,
+      "enabled": true,
+      "items": [
+        {
+          "id": "clip-a",
+          "kind": "video_clip",
+          "startSeconds": 0.0,
+          "durationSeconds": 4.0,
+          "source": {
+            "type": "media",
+            "mediaId": "media-2"
+          },
+          "label": "clip-a",
+          "properties": {
+            "sourceIn": 2.0,
+            "sourceOut": 6.0
+          }
+        },
+        {
+          "id": "clip-b",
+          "kind": "video_clip",
+          "startSeconds": 4.0,
+          "durationSeconds": 2.0,
+          "source": {
+            "type": "media",
+            "mediaId": "media-2"
+          },
+          "label": "clip-b",
+          "properties": {
+            "sourceIn": 6.0,
+            "sourceOut": 10.0,
+            "speed": 2.0
+          }
+        }
+      ]
+    },
+    {
+      "id": "root:track-scenes:1",
+      "name": "HyperFrames",
+      "kind": "hyperframe_scene",
+      "locked": false,
+      "syncLocked": false,
+      "enabled": true,
+      "items": []
+    },
+    {
+      "id": "root:track-overlays:2",
+      "name": "Overlays",
+      "kind": "overlay",
+      "locked": false,
+      "syncLocked": false,
+      "enabled": true,
+      "items": []
+    },
+    {
+      "id": "root:track-captions:3",
+      "name": "Captions",
+      "kind": "caption",
+      "locked": false,
+      "syncLocked": false,
+      "enabled": true,
+      "items": []
+    },
+    {
+      "id": "root:track-audio:4",
+      "name": "Audio",
+      "kind": "audio",
+      "locked": false,
+      "syncLocked": false,
+      "enabled": true,
+      "items": [
+        {
+          "id": "music-a",
+          "kind": "audio_clip",
+          "startSeconds": 0.0,
+          "durationSeconds": 3.0,
+          "source": {
+            "type": "media",
+            "mediaId": "music"
+          },
+          "label": "music-a",
+          "properties": {
+            "sourceIn": 1.0,
+            "sourceOut": 4.0
+          }
+        },
+        {
+          "id": "music-b",
+          "kind": "audio_clip",
+          "startSeconds": 3.0,
+          "durationSeconds": 3.0,
+          "source": {
+            "type": "media",
+            "mediaId": "music"
+          },
+          "label": "music-b",
+          "properties": {
+            "sourceIn": 10.0,
+            "sourceOut": 13.0
+          }
+        }
+      ]
+    },
+    {
+      "id": "root:track-video-2:5",
+      "name": "Video 2",
+      "kind": "video",
+      "locked": false,
+      "syncLocked": false,
+      "enabled": true,
+      "items": [
+        {
+          "id": "still-a",
+          "kind": "image_clip",
+          "startSeconds": 1.0,
+          "durationSeconds": 2.0,
+          "source": {
+            "type": "media",
+            "mediaId": "still"
+          },
+          "label": "still-a",
+          "properties": {
+            "sourceIn": 0.0,
+            "sourceOut": 2.0
+          }
+        }
+      ]
+    },
+    {
+      "id": "root:track-video-3:6",
+      "name": "Video 3",
+      "kind": "video",
+      "locked": false,
+      "syncLocked": false,
+      "enabled": true,
+      "items": []
+    },
+    {
+      "id": "root:6:wrapper:track-video:0",
+      "name": "Video",
+      "kind": "video",
+      "locked": false,
+      "syncLocked": false,
+      "enabled": true,
+      "items": [
+        {
+          "id": "root:6:wrapper:nested-a",
+          "kind": "video_clip",
+          "startSeconds": 6.0,
+          "durationSeconds": 2.0,
+          "source": {
+            "type": "media",
+            "mediaId": "media-2"
+          },
+          "label": "nested-a",
+          "properties": {
+            "opacity": 1.0,
+            "sourceIn": 1.0,
+            "sourceOut": 3.0
+          }
+        },
+        {
+          "id": "root:6:wrapper:nested-b",
+          "kind": "video_clip",
+          "startSeconds": 8.0,
+          "durationSeconds": 2.0,
+          "source": {
+            "type": "media",
+            "mediaId": "media-2"
+          },
+          "label": "nested-b",
+          "properties": {
+            "opacity": 1.0,
+            "sourceIn": 8.0,
+            "sourceOut": 10.0
+          }
+        }
+      ]
+    },
+    {
+      "id": "root:6:wrapper:track-scenes:1",
+      "name": "HyperFrames",
+      "kind": "hyperframe_scene",
+      "locked": false,
+      "syncLocked": false,
+      "enabled": true,
+      "items": []
+    },
+    {
+      "id": "root:6:wrapper:track-overlays:2",
+      "name": "Overlays",
+      "kind": "overlay",
+      "locked": false,
+      "syncLocked": false,
+      "enabled": true,
+      "items": []
+    },
+    {
+      "id": "root:6:wrapper:track-captions:3",
+      "name": "Captions",
+      "kind": "caption",
+      "locked": false,
+      "syncLocked": false,
+      "enabled": true,
+      "items": []
+    },
+    {
+      "id": "root:6:wrapper:track-audio:4",
+      "name": "Audio",
+      "kind": "audio",
+      "locked": false,
+      "syncLocked": false,
+      "enabled": true,
+      "items": []
+    }
+  ]
+}

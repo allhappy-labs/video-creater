@@ -1,0 +1,39 @@
+{
+  "id": "shadertoy-volumetric-clouds-v1",
+  "version": 1,
+  "title": "Clouds",
+  "sourceKind": "built_in",
+  "category": "clouds",
+  "shaderProfileId": "shadertoy-volumetric-clouds-v1",
+  "sourceUrl": "https://www.shadertoy.com/view/XslGRr",
+  "license": "Video Creater original procedural variant; ShaderToy URL retained as visual reference",
+  "shaderRef": "shader.frag",
+  "utilityRefs": [
+    "shared/utils.glsl"
+  ],
+  "placement": {
+    "trackKind": "hyperframe_scene",
+    "defaultStartSeconds": 0.0
+  },
+  "renderContract": {
+    "dimensions": "project",
+    "fps": "project",
+    "alpha": false
+  },
+  "preview": {
+    "thumbnailKind": "css",
+    "accentColor": "#fbbf24",
+    "secondaryColor": "#93c5fd",
+    "description": "procedural volumetric cloud slab with warm sky lighting and soft depth"
+  },
+  "visualTreatment": "procedural volumetric cloud slab with warm sky lighting and soft depth",
+  "motion": "slow cloud drift with subtle camera roll and non-looping atmospheric parallax",
+  "safeZone": "keep the middle 80% low contrast for overlay readability and preserve 10% margins",
+  "avoid": "strobing, black slabs, blown-out white sky, and high-frequency texture crawl",
+  "agentSummary": "shadertoy-volumetric-clouds-v1: Clouds. kind shader_background. procedural volumetric cloud slab with warm sky lighting and soft depth",
+  "notes": [
+    "Video Creater original procedural variant tuned from the visual reference, not a direct ShaderToy source port.",
+    "Uses shared Video Creater procedural utilities; no external sampler uniforms, mouse input, remote resources, or copied ShaderToy source are required."
+  ],
+  "defaultDurationSeconds": 4.0
+}

@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "durationSeconds": 0.0,
+  "tracks": [
+    {
+      "id": "track-video",
+      "name": "Video",
+      "kind": "video",
+      "locked": false,
+      "enabled": true,
+      "items": []
+    },
+    {
+      "id": "track-scenes",
+      "name": "HyperFrames",
+      "kind": "hyperframe_scene",
+      "locked": false,
+      "enabled": true,
+      "items": []
+    },
+    {
+      "id": "track-overlays",
+      "name": "Overlays",
+      "kind": "overlay",
+      "locked": false,
+      "enabled": true,
+      "items": []
+    },
+    {
+      "id": "track-captions",
+      "name": "Captions",
+      "kind": "caption",
+      "locked": false,
+      "enabled": true,
+      "items": []
+    },
+    {
+      "id": "track-audio",
+      "name": "Audio",
+      "kind": "audio",
+      "locked": false,
+      "enabled": true,
+      "items": []
+    }
+  ]
+}

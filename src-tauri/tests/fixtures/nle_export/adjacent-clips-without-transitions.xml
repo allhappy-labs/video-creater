@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xmeml version="5">
+  <sequence>
+    <name>Test Project</name>
+    <duration>192</duration>
+    <rate>
+      <timebase>24</timebase>
+      <ntsc>FALSE</ntsc>
+    </rate>
+    <media>
+      <video>
+        <format>
+          <samplecharacteristics>
+            <width>1920</width>
+            <height>1080</height>
+          </samplecharacteristics>
+        </format>
+        <track>
+          <clipitem id="item-1">
+            <name>Clip item-1</name>
+            <masterclipid>masterclip-item-1</masterclipid>
+            <start>0</start>
+            <end>96</end>
+            <in>48</in>
+            <out>144</out>
+            <file>
+              <name>input.mp4</name>
+              <pathurl>file://media/input.mp4</pathurl>
+              <duration>288</duration>
+            </file>
+            <link>
+              <linkclipref>item-1</linkclipref>
+              <mediatype>video</mediatype>
+              <trackindex>1</trackindex>
+              <clipindex>1</clipindex>
+            </link>
+            <link>
+              <linkclipref>item-1-audio</linkclipref>
+              <mediatype>audio</mediatype>
+              <trackindex>1</trackindex>
+              <clipindex>1</clipindex>
+            </link>
+          </clipitem>
+          <clipitem id="item-2">
+            <name>Clip item-2</name>
+            <masterclipid>masterclip-item-2</masterclipid>
+            <start>96</start>
+            <end>192</end>
+            <in>144</in>
+            <out>240</out>
+            <file>
+              <name>input.mp4</name>
+              <pathurl>file://media/input.mp4</pathurl>
+              <duration>288</duration>
+            </file>
+            <link>
+              <linkclipref>item-2</linkclipref>
+              <mediatype>video</mediatype>
+              <trackindex>1</trackindex>
+              <clipindex>1</clipindex>
+            </link>
+            <link>
+              <linkclipref>item-2-audio</linkclipref>
+              <mediatype>audio</mediatype>
+              <trackindex>1</trackindex>
+              <clipindex>1</clipindex>
+            </link>
+          </clipitem>
+          <clipitem id="up-1">
+            <name>Clip up-1</name>
+            <start>24</start>
+            <end>72</end>
+            <in>0</in>
+            <out>48</out>
+            <file>
+              <name>input.mp4</name>
+              <pathurl>file://media/input.mp4</pathurl>
+              <duration>288</duration>
+            </file>
+          </clipitem>
+        </track>
+      </video>
+      <audio>
+        <track>
+          <clipitem id="a-1">
+            <name>Clip a-1</name>
+            <start>0</start>
+            <end>72</end>
+            <in>24</in>
+            <out>96</out>
+            <file>
+              <name>voice.wav</name>
+              <pathurl>file://media/voice.wav</pathurl>
+              <duration>480</duration>
+            </file>
+          </clipitem>
+          <clipitem id="a-2">
+            <name>Clip a-2</name>
+            <start>72</start>
+            <end>144</end>
+            <in>192</in>
+            <out>264</out>
+            <file>
+              <name>voice.wav</name>
+              <pathurl>file://media/voice.wav</pathurl>
+              <duration>480</duration>
+            </file>
+          </clipitem>
+          <clipitem id="item-1-audio">
+            <name>Clip item-1</name>
+            <masterclipid>masterclip-item-1</masterclipid>
+            <start>0</start>
+            <end>96</end>
+            <in>48</in>
+            <out>144</out>
+            <file>
+              <name>input.mp4</name>
+              <pathurl>file://media/input.mp4</pathurl>
+              <duration>288</duration>
+            </file>
+            <filter>
+              <effect>
+                <name>Audio Levels</name>
+                <effectid>audiolevels</effectid>
+                <parameter>
+                  <parameterid>level</parameterid>
+                  <name>Level</name>
+                  <valuemin>0</valuemin>
+                  <valuemax>3.98107</valuemax>
+                  <value>0.8913</value>
+                </parameter>
+              </effect>
+            </filter>
+            <link>
+              <linkclipref>item-1-audio</linkclipref>
+              <mediatype>audio</mediatype>
+              <trackindex>1</trackindex>
+              <clipindex>1</clipindex>
+            </link>
+            <link>
+              <linkclipref>item-1</linkclipref>
+              <mediatype>video</mediatype>
+              <trackindex>1</trackindex>
+              <clipindex>1</clipindex>
+            </link>
+          </clipitem>
+          <clipitem id="item-2-audio">
+            <name>Clip item-2</name>
+            <masterclipid>masterclip-item-2</masterclipid>
+            <start>96</start>
+            <end>192</end>
+            <in>144</in>
+            <out>240</out>
+            <file>
+              <name>input.mp4</name>
+              <pathurl>file://media/input.mp4</pathurl>
+              <duration>288</duration>
+            </file>
+            <filter>
+              <effect>
+                <name>Audio Levels</name>
+                <effectid>audiolevels</effectid>
+                <parameter>
+                  <parameterid>level</parameterid>
+                  <name>Level</name>
+                  <valuemin>0</valuemin>
+                  <valuemax>3.98107</valuemax>
+                  <value>0.7079</value>
+                </parameter>
+              </effect>
+            </filter>
+            <link>
+              <linkclipref>item-2-audio</linkclipref>
+              <mediatype>audio</mediatype>
+              <trackindex>1</trackindex>
+              <clipindex>1</clipindex>
+            </link>
+            <link>
+              <linkclipref>item-2</linkclipref>
+              <mediatype>video</mediatype>
+              <trackindex>1</trackindex>
+              <clipindex>1</clipindex>
+            </link>
+          </clipitem>
+        </track>
+      </audio>
+    </media>
+  </sequence>
+</xmeml>

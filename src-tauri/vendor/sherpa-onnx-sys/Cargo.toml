@@ -1,0 +1,19 @@
+# Vendored copy of sherpa-onnx-sys 1.13.8 (crates.io checksum
+# 14bbeabb73f73f1c1f4a278af0ee9ae90a19f9727482027047fb9422fa14f8fe, Apache-2.0).
+# `src/` and `LICENSE` are byte-identical to the published crate. Only this manifest and
+# `build.rs` were replaced: the upstream build script downloads prebuilt sherpa-onnx archives
+# that statically include GPL-3.0 espeak-ng/piper-phonemize (TTS). Video Creater instead links a
+# source-built, TTS-disabled sherpa-onnx produced by scripts/build-linux-speech-worker.mjs.
+[package]
+name = "sherpa-onnx-sys"
+version = "1.13.8"
+edition = "2021"
+description = "Raw FFI bindings to the sherpa-onnx C API (vendored, no-download build script)"
+license = "Apache-2.0"
+repository = "https://github.com/k2-fsa/sherpa-onnx"
+links = "sherpa-onnx"
+publish = false
+
+[lib]
+name = "sherpa_onnx_sys"
+path = "src/lib.rs"

@@ -1,0 +1,31 @@
+[package]
+name = "video-creater-audio-enhance"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.87"
+publish = false
+license = "MIT"
+description = "DeepFilterNet3 speech enhancement helper with the video-creater-audio-enhance CLI contract"
+
+[[bin]]
+name = "video-creater-audio-enhance"
+path = "src/main.rs"
+
+[dependencies]
+# libDF (MIT OR Apache-2.0) pinned to an immutable commit. Crates.io only publishes
+# deep_filter 0.2.5 (2022) without the tract runtime; this revision embeds the
+# DeepFilterNet3 ONNX model (models/DeepFilterNet3_onnx.tar.gz,
+# sha256 c94d91f70911001c946e0fabb4aa9adc37045f45a03b56008cb0c8244cb63616) through
+# the `default-model` feature, so the helper never downloads model weights.
+deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet", rev = "d375b2d8309e0935d165700c91da9de862a99c31", default-features = false, features = ["tract", "default-model"] }
+hound = "3.5.1"
+ndarray = "0.15"
+# libDF declares tract ^0.21.4, but later 0.21.x releases renamed APIs it uses. Pin the
+# versions from libDF's own Cargo.lock at the revision above (MIT OR Apache-2.0).
+tract-core = "=0.21.4"
+tract-hir = "=0.21.4"
+tract-onnx = "=0.21.4"
+tract-pulse = "=0.21.4"
+
+[dev-dependencies]
+tempfile = "3.14.0"

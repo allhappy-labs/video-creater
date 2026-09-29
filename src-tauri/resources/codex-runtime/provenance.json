@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "component": "Codex CLI app-server",
+  "package": "@openai/codex",
+  "version": "0.141.0",
+  "source": "https://github.com/openai/codex",
+  "license": "Apache-2.0",
+  "runtimeClassification": "bundled"
+}

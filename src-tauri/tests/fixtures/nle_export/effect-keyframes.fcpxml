@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<fcpxml version="1.10">
+  <resources>
+    <format id="r1" frameDuration="1/24s" width="1920" height="1080"/>
+    <asset id="media-1" name="input.mp4" start="0/1s" duration="288/24s" hasVideo="1" format="r1" hasAudio="1" audioSources="1" audioChannels="2">
+      <media-rep kind="original-media" src="file://media/input.mp4"/>
+    </asset>
+  </resources>
+  <library>
+    <event name="Video Creater Export">
+      <project name="Test Project">
+        <sequence format="r1" duration="96/24s">
+          <spine>
+            <asset-clip name="Opening clip" ref="media-1" offset="0/24s" duration="96/24s" start="0/24s">
+              <note>Video Creater NLE export limitation: effect stack and color grade are not round-tripped into davinciFcpxml; render a final video for baked visual/audio look.</note>
+              <adjust-blend amount="0.3">
+                <param name="amount" value="0.3">
+                  <keyframeAnimation>
+                    <keyframe time="0/24s" value="0.3"/>
+                    <keyframe time="24/24s" value="1"/>
+                  </keyframeAnimation>
+                </param>
+              </adjust-blend>
+              <adjust-volume amount="-6"/>
+            </asset-clip>
+          </spine>
+        </sequence>
+      </project>
+    </event>
+  </library>
+</fcpxml>

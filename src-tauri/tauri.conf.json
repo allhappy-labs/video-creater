@@ -1,0 +1,57 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Video Creater",
+  "version": "0.1.0",
+  "identifier": "com.olhapi.video-creater",
+  "build": {
+    "beforeDevCommand": "pnpm dev:web-runtime",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "pnpm build:gstreamer-runtime && pnpm build:compatibility-decoder && pnpm build:precompose-sidecar && pnpm build:avfoundation-exporter && pnpm build:audio-enhancer && pnpm build:semantic-encoder && pnpm build:fluidaudio-helper && pnpm build:codex-sidecar && node scripts/build-macos-release.mjs --prepare-mcp-sidecar && pnpm build",
+    "beforeBundleCommand": "pnpm prepare:gstreamer-release-bundle",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Video Creater",
+        "width": 1440,
+        "height": 920,
+        "minWidth": 400,
+        "minHeight": 640
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:1420 ws://127.0.0.1:1420; img-src 'self' asset: http://asset.localhost; media-src 'self' asset: http://asset.localhost blob:; style-src 'self' 'unsafe-inline'; script-src 'self'",
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "externalBin": [
+      "binaries/video-creater-precompose-worker",
+      "binaries/video-creater-avfoundation-exporter",
+      "binaries/video-creater-audio-enhance",
+      "binaries/video-creater-semantic-encoder",
+      "binaries/video-creater-fluidaudio-transcribe",
+      "binaries/video-creater-compatibility-decoder",
+      "binaries/video-creater-codex",
+      "binaries/video-creater-mcp-server"
+    ],
+    "resources": {
+      "resources/render-runtime/": "render-runtime/",
+      "resources/compatibility-runtime/": "compatibility-runtime/",
+      "vendor/dotlottie-rs/LICENSES/Apache-2.0.txt": "codex-runtime/LICENSE-APACHE-2.0.txt",
+      "resources/codex-runtime/provenance.json": "codex-runtime/provenance.json",
+      "resources/sample-project/": "sample-project/"
+    },
+    "icon": [],
+    "macOS": {
+      "signingIdentity": "-",
+      "entitlements": "Entitlements.plist"
+    }
+  }
+}

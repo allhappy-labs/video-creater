@@ -1,0 +1,71 @@
+{
+  "schemaVersion": 2,
+  "description": "Reviewed browser visual QA shot matrix and release-gate thresholds. PNG baselines are committed under docs/visual-qa/browser-visual-baseline and must match this manifest before release gating.",
+  "screenshots": [
+    "home-desktop.png",
+    "home-narrow.png",
+    "home-missing-recent-desktop.png",
+    "home-missing-recent-narrow.png",
+    "home-palmier-desktop.png",
+    "settings-desktop.png",
+    "settings-narrow.png"
+  ],
+  "artifacts": {
+    "home-desktop.png": {
+      "width": 1440,
+      "height": 960,
+      "bytes": 55762,
+      "sha256": "ad3eea6d7a4c026eb2b40643902aa8b75483ac4c2f5bb2b29b1dc04d3182f288"
+    },
+    "home-narrow.png": {
+      "width": 390,
+      "height": 844,
+      "bytes": 48574,
+      "sha256": "d1c7e71e75ccedd235e39620a139f29d1031c8d5bbf28e5effe4d8dfb8e510f0"
+    },
+    "home-missing-recent-desktop.png": {
+      "width": 1440,
+      "height": 960,
+      "bytes": 71783,
+      "sha256": "8e5cbd1d72734168e7c51d3bc050cbfb745188383f598b577c7689493c3dd464"
+    },
+    "home-missing-recent-narrow.png": {
+      "width": 390,
+      "height": 844,
+      "bytes": 61488,
+      "sha256": "5dc5c794a36b2f4eb4f1e161a5142aa80f7b25d46e5a711b871da414d6ce3bb3"
+    },
+    "home-palmier-desktop.png": {
+      "width": 1440,
+      "height": 960,
+      "bytes": 71774,
+      "sha256": "27449ed23d02a818f8b8835613f71709733fc612f7fc670422f3aefb2779a6c9"
+    },
+    "settings-desktop.png": {
+      "width": 1440,
+      "height": 960,
+      "bytes": 85141,
+      "sha256": "88e2836d680616cb97b6bc333ffe4a723b932bd2d7159a5ed0a325fe738f338a"
+    },
+    "settings-narrow.png": {
+      "width": 390,
+      "height": 844,
+      "bytes": 56911,
+      "sha256": "e870df367399a35419e42c1445515228a3bb3bd367d26b00f3853d7be2517fa1"
+    }
+  },
+  "platformThresholds": {
+    "darwin-arm64": {
+      "threshold": 0.01,
+      "channelThreshold": 4
+    },
+    "darwin-x64": {
+      "threshold": 0.01,
+      "channelThreshold": 4
+    },
+    "linux-x64": {
+      "threshold": 0.01,
+      "channelThreshold": 4
+    }
+  }
+}

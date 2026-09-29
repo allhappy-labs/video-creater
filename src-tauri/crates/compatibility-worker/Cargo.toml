@@ -1,0 +1,17 @@
+[package]
+name = "video-creater-compatibility-decoder"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.87"
+publish = false
+license = "MIT"
+
+[dependencies]
+gstreamer = { version = "0.25", features = ["v1_22"] }
+gstreamer-app = { version = "0.25", features = ["v1_22"] }
+gstreamer-pbutils = { version = "0.25", features = ["v1_20"] }
+serde_json = "1.0.134"
+video-creater-compatibility-protocol = { path = "../compatibility-protocol" }
+
+[dev-dependencies]
+tempfile = "3.14.0"

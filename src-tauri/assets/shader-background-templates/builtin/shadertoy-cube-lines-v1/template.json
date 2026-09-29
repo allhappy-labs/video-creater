@@ -1,0 +1,39 @@
+{
+  "id": "shadertoy-cube-lines-v1",
+  "version": 1,
+  "title": "Cube lines",
+  "sourceKind": "built_in",
+  "category": "geometry",
+  "shaderProfileId": "shadertoy-cube-lines-v1",
+  "sourceUrl": "https://www.shadertoy.com/view/NslGRN",
+  "license": "Video Creater original procedural variant; ShaderToy URL retained as visual reference",
+  "shaderRef": "shader.frag",
+  "utilityRefs": [
+    "shared/utils.glsl"
+  ],
+  "placement": {
+    "trackKind": "hyperframe_scene",
+    "defaultStartSeconds": 0.0
+  },
+  "renderContract": {
+    "dimensions": "project",
+    "fps": "project",
+    "alpha": false
+  },
+  "preview": {
+    "thumbnailKind": "css",
+    "accentColor": "#22d3ee",
+    "secondaryColor": "#fb923c",
+    "description": "transparent glass cube impression filled with animated internal line lattices"
+  },
+  "visualTreatment": "transparent glass cube impression filled with animated internal line lattices",
+  "motion": "slow cube rotation with internal contour lines sliding and refractive edge glow",
+  "safeZone": "keep the cube inside the central 80% and avoid critical text within 10% margins",
+  "avoid": "strobing, full opaque boxes, plain wireframe-only holds, and texture-dependent noise",
+  "agentSummary": "shadertoy-cube-lines-v1: Cube lines. kind shader_background. transparent glass cube impression filled with animated internal line lattices",
+  "notes": [
+    "Video Creater original procedural variant tuned from the visual reference, not a direct ShaderToy source port.",
+    "Uses shared Video Creater procedural utilities; no external sampler uniforms, mouse input, remote resources, or copied ShaderToy source are required."
+  ],
+  "defaultDurationSeconds": 4.0
+}

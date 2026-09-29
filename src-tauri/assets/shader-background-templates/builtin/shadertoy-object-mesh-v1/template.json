@@ -1,0 +1,39 @@
+{
+  "id": "shadertoy-object-mesh-v1",
+  "version": 1,
+  "title": "Object mesh",
+  "sourceKind": "built_in",
+  "category": "geometry",
+  "shaderProfileId": "shadertoy-object-mesh-v1",
+  "sourceUrl": "https://www.shadertoy.com/view/4slGzn",
+  "license": "Video Creater original procedural variant; ShaderToy URL retained as visual reference",
+  "shaderRef": "shader.frag",
+  "utilityRefs": [
+    "shared/utils.glsl"
+  ],
+  "placement": {
+    "trackKind": "hyperframe_scene",
+    "defaultStartSeconds": 0.0
+  },
+  "renderContract": {
+    "dimensions": "project",
+    "fps": "project",
+    "alpha": false
+  },
+  "preview": {
+    "thumbnailKind": "css",
+    "accentColor": "#cbd5e1",
+    "secondaryColor": "#f59e0b",
+    "description": "procedural grunge-metal mesh object with wire seams and shaded surface ripples"
+  },
+  "visualTreatment": "procedural grunge-metal mesh object with wire seams and shaded surface ripples",
+  "motion": "slow mesh rotation with animated surface waves and sparse wire glints",
+  "safeZone": "keep mesh silhouette inside central 80% and preserve 10% margins from bright wires",
+  "avoid": "strobing, copied texture assets, flat gray meshes, and unreadable high-density wire noise",
+  "agentSummary": "shadertoy-object-mesh-v1: Object mesh. kind shader_background. procedural grunge-metal mesh object with wire seams and shaded surface ripples",
+  "notes": [
+    "Video Creater original procedural variant tuned from the visual reference, not a direct ShaderToy source port.",
+    "Uses shared Video Creater procedural utilities; no external sampler uniforms, mouse input, remote resources, or copied ShaderToy source are required."
+  ],
+  "defaultDurationSeconds": 4.0
+}

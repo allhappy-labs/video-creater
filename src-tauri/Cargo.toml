@@ -1,0 +1,199 @@
+[package]
+name = "video-creater"
+default-run = "video-creater"
+version = "0.1.0"
+description = "Local-first agent-assisted video editor"
+authors = ["olhapi"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.87"
+
+[workspace]
+members = [
+  ".",
+  "crates/precompose-protocol",
+  "crates/precompose-worker",
+  "crates/compatibility-protocol",
+  "crates/compatibility-worker",
+  "crates/provider-e2e-harness",
+  "crates/audio-enhance-worker",
+  "crates/semantic-encoder-worker",
+  "crates/speech-worker",
+]
+exclude = ["vendor/dotlottie-rs", "vendor/sherpa-onnx-sys"]
+resolver = "2"
+
+[lib]
+name = "video_creater_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+default = ["app-runtime", "coreml-inspect", "ges-render", "gpu-render", "graphics-render", "temporal-worker"]
+app-runtime = ["dep:tauri"]
+web-host = ["dep:axum", "dep:futures-util", "dep:tower", "dep:tower-http", "dep:tokio", "dep:tokio-util"]
+custom-protocol = ["tauri/custom-protocol"]
+coreml-inspect = ["dep:coreml-native"]
+ges-render = [
+  "dep:gstreamer",
+  "dep:gstreamer-app",
+  "dep:gstreamer-video",
+  "dep:gstreamer-pbutils",
+  "dep:gstreamer-editing-services",
+]
+gpu-render = ["dep:pollster", "dep:wgpu"]
+graphics-render = ["dep:cosmic-text", "dep:tiny-skia"]
+temporal-worker = [
+  "dep:futures",
+  "dep:futures-util",
+  "dep:prost",
+  "dep:temporalio-client",
+  "dep:temporalio-common",
+  "dep:temporalio-macros",
+  "dep:temporalio-sdk",
+  "dep:temporalio-sdk-core",
+  "dep:tokio",
+]
+mcp-server = []
+
+[[bin]]
+name = "video-creater"
+path = "src/main.rs"
+required-features = ["app-runtime"]
+
+[[bin]]
+name = "video-creater-host"
+path = "src/bin/video-creater-host.rs"
+required-features = ["web-host"]
+
+[[bin]]
+name = "video-creater-mcp-server"
+path = "src/bin/video-creater-mcp-server.rs"
+required-features = ["mcp-server"]
+
+[[bin]]
+name = "video-creater-settings-e2e"
+path = "src/bin/video-creater-settings-e2e.rs"
+required-features = ["app-runtime"]
+
+[[bin]]
+name = "video-creater-inspect-coreml-parakeet"
+path = "src/bin/video-creater-inspect-coreml-parakeet.rs"
+
+[[bin]]
+name = "video-creater-nle-roundtrip-evidence"
+path = "src/bin/video-creater-nle-roundtrip-evidence.rs"
+
+[[bin]]
+name = "video-creater-compatibility-evidence"
+path = "src/bin/video-creater-compatibility-evidence.rs"
+
+[[bin]]
+name = "video-creater-hyperframe-evidence"
+path = "src/bin/video-creater-hyperframe-evidence.rs"
+required-features = ["ges-render"]
+
+[[bin]]
+name = "video-creater-native-export-evidence"
+path = "src/bin/video-creater-native-export-evidence.rs"
+required-features = ["ges-render"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.2", features = [] }
+
+[dependencies]
+anyhow = "1.0.95"
+axum = { version = "0.8.4", default-features = false, features = ["http1", "json", "query", "tokio", "ws"], optional = true }
+base64 = "0.22.1"
+bytemuck = { version = "1.25.0", features = ["derive"] }
+chrono = { version = "0.4.39", features = ["serde"] }
+cosmic-text = { version = "0.19.0", optional = true }
+flate2 = { version = "1.1.9", default-features = false, features = ["rust_backend"] }
+futures = { version = "0.3.32", optional = true }
+futures-util = { version = "0.3.32", optional = true }
+gstreamer = { version = "0.25", optional = true, features = ["v1_22"] }
+gstreamer-app = { version = "0.25", optional = true }
+gstreamer-video = { version = "0.25", optional = true }
+gstreamer-editing-services = { version = "0.25", optional = true }
+gstreamer-pbutils = { version = "0.25", optional = true, features = ["v1_20"] }
+image = { version = "0.25.8", default-features = false, features = ["bmp", "png"] }
+libc = "0.2"
+hound = "3.5.1"
+png = "0.18.1"
+prost = { version = "0.14", optional = true }
+pollster = { version = "0.4.0", optional = true }
+reqwest = { version = "0.12.12", default-features = false, features = ["blocking", "json", "multipart", "rustls-tls"] }
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.134"
+sha2 = "0.10.9"
+tauri = { version = "2.11.2", features = ["protocol-asset"], optional = true }
+tempfile = "3.14.0"
+temporalio-client = { version = "0.4.0", optional = true }
+temporalio-common = { version = "0.4.0", optional = true }
+temporalio-macros = { version = "0.4.0", optional = true }
+temporalio-sdk = { version = "0.4.0", optional = true }
+temporalio-sdk-core = { version = "0.4.0", optional = true }
+thiserror = "2.0.9"
+tiny-skia = { version = "0.12.0", optional = true }
+tokio = { version = "1.52.3", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"], optional = true }
+tokio-util = { version = "0.7.17", features = ["io"], optional = true }
+tower-http = { version = "0.6.6", default-features = false, features = ["fs", "set-header", "trace"], optional = true }
+tower = { version = "0.5.2", default-features = false, features = ["util"], optional = true }
+uuid = { version = "1.11.0", features = ["v4", "serde"] }
+video-creater-precompose-protocol = { path = "crates/precompose-protocol" }
+video-creater-compatibility-protocol = { path = "crates/compatibility-protocol" }
+wgpu = { version = "29.0.3", features = ["glsl", "wgsl"], optional = true }
+tauri-plugin-dialog = "2"
+zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+roxmltree = "0.20"
+tauri = { version = "2.11.2", features = ["protocol-asset", "test"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+coreml-native = { version = "0.2.0", optional = true }
+objc2 = "0.6.4"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["NSError"] }
+objc2-user-notifications = { version = "0.3.2", default-features = false, features = ["block2", "UNNotificationSettings", "UNUserNotificationCenter"] }
+security-framework = "3.7.0"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+secret-service = { version = "5.2.0", default-features = false, features = ["rt-async-io-crypto-rust"] }
+zbus = { version = "5.19.0", default-features = false, features = ["async-io", "blocking-api"] }
+
+[[test]]
+name = "project_export_prores_appkit"
+path = "tests/project_export_prores_appkit.rs"
+harness = false
+required-features = ["ges-render"]
+
+[[test]]
+name = "project_export_nested_effect_appkit"
+path = "tests/project_export_nested_effect_appkit.rs"
+harness = false
+required-features = ["ges-render"]
+
+[[test]]
+name = "media_inspection_appkit"
+path = "tests/media_inspection_appkit.rs"
+harness = false
+required-features = ["ges-render"]
+
+[[test]]
+name = "precompose_alpha_ges"
+path = "tests/precompose_alpha_ges.rs"
+harness = false
+required-features = ["ges-render"]
+
+[[test]]
+name = "render_transitions_ges"
+path = "tests/render_transitions_ges.rs"
+required-features = ["ges-render"]
+
+[profile.dev]
+debug = 1
+incremental = true
+
+[profile.test]
+debug = 1
+incremental = false

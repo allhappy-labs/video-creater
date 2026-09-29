@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "projectId": "provider-e2e-project",
+  "name": "Provider E2E",
+  "updatedAt": "2026-07-05T20:29:16.291459+00:00",
+  "files": {
+    "manifest": "video-creater.project.json",
+    "timeline": "timeline.json",
+    "media": "media/index.json",
+    "transcripts": "transcripts",
+    "templates": "templates",
+    "generated": "generated",
+    "renders": "renders",
+    "jobs": "jobs",
+    "exports": "exports",
+    "logs": "logs"
+  },
+  "indexes": {
+    "transcripts": "transcripts/index.json",
+    "templates": "templates/index.json",
+    "generated": "generated/index.json",
+    "renders": "renders/index.json",
+    "jobs": "jobs/index.json",
+    "exports": "exports/index.json",
+    "search": "search/index.json"
+  },
+  "counts": {
+    "media": 1,
+    "mediaFolders": 0,
+    "timelineTracks": 5,
+    "timelineItems": 0,
+    "transcripts": 0,
+    "templateOverrides": 0,
+    "generatedAssets": 1,
+    "renderReports": 0,
+    "workflowJobs": 1,
+    "exportArtifacts": 0
+  },
+  "latest": {
+    "generatedAssetId": "provider-e2e-generated",
+    "workflowJobId": "provider-e2e-generated"
+  }
+}

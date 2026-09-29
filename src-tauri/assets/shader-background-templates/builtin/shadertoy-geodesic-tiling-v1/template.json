@@ -1,0 +1,39 @@
+{
+  "id": "shadertoy-geodesic-tiling-v1",
+  "version": 1,
+  "title": "Geodesic tiling",
+  "sourceKind": "built_in",
+  "category": "geometry",
+  "shaderProfileId": "shadertoy-geodesic-tiling-v1",
+  "sourceUrl": "https://www.shadertoy.com/view/llVXRd",
+  "license": "Video Creater original procedural variant; ShaderToy URL retained as visual reference",
+  "shaderRef": "shader.frag",
+  "utilityRefs": [
+    "shared/utils.glsl"
+  ],
+  "placement": {
+    "trackKind": "hyperframe_scene",
+    "defaultStartSeconds": 0.0
+  },
+  "renderContract": {
+    "dimensions": "project",
+    "fps": "project",
+    "alpha": false
+  },
+  "preview": {
+    "thumbnailKind": "css",
+    "accentColor": "#a78bfa",
+    "secondaryColor": "#60a5fa",
+    "description": "lit spherical geodesic tile shell with spectral seams and dark space background"
+  },
+  "visualTreatment": "lit spherical geodesic tile shell with spectral seams and dark space background",
+  "motion": "slow orbital rotation with tile height breathing and animated seam highlights",
+  "safeZone": "keep sphere and bright seams inside the central 80% and leave 10% margins clear",
+  "avoid": "strobing, jagged aliasing, full-screen white flashes, and flat static sphere renders",
+  "agentSummary": "shadertoy-geodesic-tiling-v1: Geodesic tiling. kind shader_background. lit spherical geodesic tile shell with spectral seams and dark space background",
+  "notes": [
+    "Video Creater original procedural variant tuned from the visual reference, not a direct ShaderToy source port.",
+    "Uses shared Video Creater procedural utilities; no external sampler uniforms, mouse input, remote resources, or copied ShaderToy source are required."
+  ],
+  "defaultDurationSeconds": 4.0
+}

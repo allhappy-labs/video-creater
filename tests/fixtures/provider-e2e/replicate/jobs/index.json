@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "jobs": [
+    {
+      "jobId": "provider-e2e-generated",
+      "kind": "generate_media",
+      "status": "completed",
+      "updatedAt": "2026-07-05T20:29:16.384791+00:00",
+      "workflowId": "video-creater/provider-e2e-project/generate-media/provider-e2e-generated",
+      "workflowType": "VideoCreaterGenerateMediaWorkflow",
+      "taskQueue": "video-creater-workflows",
+      "runId": "provider-e2e-run",
+      "activityCount": 4,
+      "hasStartRequest": true,
+      "startRequestReady": true,
+      "idReusePolicy": "rejectDuplicate",
+      "credentialEnvVar": "REPLICATE_API_TOKEN"
+    }
+  ]
+}

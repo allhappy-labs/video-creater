@@ -1,0 +1,7 @@
+{
+  "model": "siglip2-base-patch16-256",
+  "version": 1,
+  "embeddingDim": 768,
+  "imageSize": 256,
+  "contextLength": 64
+}

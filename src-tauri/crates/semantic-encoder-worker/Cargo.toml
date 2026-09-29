@@ -1,0 +1,28 @@
+[package]
+name = "video-creater-semantic-encoder"
+version = "0.1.0"
+edition = "2021"
+# ort 2.0.0-rc.13 requires Rust 1.88.
+rust-version = "1.88"
+publish = false
+license = "MIT"
+description = "SigLIP 2 ONNX Runtime encoder helper with the video-creater-semantic-encoder protocol"
+
+[[bin]]
+name = "video-creater-semantic-encoder"
+path = "src/main.rs"
+
+[dependencies]
+base64 = "0.22.1"
+image = { version = "0.25.8", default-features = false, features = ["bmp", "jpeg", "png", "webp"] }
+# ONNX Runtime (MIT) 1.28.0 through ort (MIT OR Apache-2.0). `download-binaries` fetches the
+# pinned static build listed in ort-sys build/download/dist.tsv
+# (x86_64-unknown-linux-gnu: sha256 e454f710f8a49f53aa5b4ff51e3454ae1835777e431c6c35c5255ce6f205fd68)
+# and verifies its hash; ONNX Runtime is linked statically, so no libonnxruntime.so ships.
+ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "download-binaries", "tls-rustls"] }
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.134"
+tokenizers = { version = "=0.23.2", default-features = false, features = ["fancy-regex"] }
+
+[dev-dependencies]
+tempfile = "3.14.0"

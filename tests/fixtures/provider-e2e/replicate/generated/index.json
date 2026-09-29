@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "assets": [
+    {
+      "assetId": "provider-e2e-generated",
+      "name": "Provider E2E still",
+      "path": "generated/provider-e2e-generated/asset.json",
+      "status": "completed",
+      "modelProvider": "replicate",
+      "modelId": "black-forest-labs/flux-schnell",
+      "outputCount": 1,
+      "createdAt": "2026-07-05T20:29:16.291459+00:00"
+    }
+  ]
+}

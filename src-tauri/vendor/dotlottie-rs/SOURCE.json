@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "component": "dotlottie-rs",
+  "version": "0.1.58",
+  "sourceRepository": "https://github.com/LottieFiles/dotlottie-rs",
+  "sourceArchiveUrl": "https://codeload.github.com/LottieFiles/dotlottie-rs/tar.gz/2ce5e48f5786c3e60301d66db4cfdff56c896895",
+  "sourceRevision": "2ce5e48f5786c3e60301d66db4cfdff56c896895",
+  "sourceArchiveSha256": "d057418ffc8d208e09821a676254cc969f2ed30a1ad4a47b2bddb0728589ca31",
+  "vendoredTreeSha256": "4293fb1ad020b84e2a7f85b78cd93c82ed7b65c09fe40f7ead9108063cf51fce",
+  "license": "MIT",
+  "permissiveOnly": true,
+  "thorvg": {
+    "sourceRepository": "https://github.com/thorvg/thorvg",
+    "sourceArchiveUrl": "https://codeload.github.com/thorvg/thorvg/tar.gz/73045df5398690eb1c6c0946e0b2301032337776",
+    "sourceRevision": "73045df5398690eb1c6c0946e0b2301032337776",
+    "sourceArchiveSha256": "39eb1d49428426a17f4bba89a1be50d73ac339650db97612a2a6128c0e0b4621",
+    "license": "MIT"
+  },
+  "jerryscript": {
+    "sourceIdentity": "ThorVG snapshot 73045df5398690eb1c6c0946e0b2301032337776/src/loaders/lottie/jerryscript",
+    "license": "Apache-2.0",
+    "expressionsEnabled": true
+  },
+  "enabledFeatures": [
+    "dotlottie",
+    "tvg",
+    "tvg-cpu",
+    "tvg-jpg",
+    "tvg-lottie-expressions",
+    "tvg-png",
+    "tvg-webp"
+  ],
+  "forbiddenFeatures": [
+    "audio",
+    "c_api",
+    "dev",
+    "state-machines",
+    "theming",
+    "tracking_allocator",
+    "tvg-gl",
+    "tvg-log",
+    "tvg-otf",
+    "tvg-simd",
+    "tvg-threads",
+    "tvg-ttf",
+    "tvg-wg",
+    "wasm-bindgen-api",
+    "webgl",
+    "webgpu"
+  ],
+  "localPatches": [
+    "Exclude vendored native sources from the application workspace while consuming them only through the isolated worker path dependency.",
+    "Minimize the source snapshot to the exact Rust, ThorVG CPU, image-loader, dotLottie, and JerryScript build closure.",
+    "Replace the MPL-noticed Lottie interpolator with a clean MIT fixed-iteration cubic Bezier solver.",
+    "Replace build-time download and GPU/WASM bootstrap code with a fail-closed native CPU-only build script.",
+    "Remove unconditional MPL-2.0 cbindgen build dependency and unused C header generation because c_api is forbidden.",
+    "Remove fallback_font.bin and compile its module/import only with the forbidden tvg-ttf feature until exact DM Sans subset provenance and OFL-1.1 notice are verified.",
+    "Expose expression exceptions to Rust, preserve ordinary JavaScript completion values when $bm_rt is absent, and use deterministic per-expression frame RNG with seedRandom support.",
+    "Remove dotLottie modules whose curated source files are absent instead of leaving feature-gated declarations that cannot compile.",
+    "Reject every forbidden Cargo feature in the build script before any incomplete or unreviewed feature path can compile."
+  ]
+}

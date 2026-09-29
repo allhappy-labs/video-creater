@@ -1,0 +1,32 @@
+pub mod agent;
+pub mod app_service;
+pub mod audio_sync;
+pub mod codex;
+pub mod desktop_integration;
+pub mod edit;
+pub mod effects;
+pub mod frame_compositor;
+pub mod generation;
+pub mod gpu_graphics;
+pub mod graphics;
+pub mod media_inspection;
+pub mod media_stream_server;
+pub mod precompose;
+pub mod process_supervisor;
+pub mod project;
+pub mod provider_credentials;
+pub mod remote_access;
+pub mod render_pipeline;
+pub mod render_runtime;
+pub mod search;
+pub mod settings;
+pub mod speech_analysis;
+pub mod speech_models;
+pub mod timeline_filmstrip;
+pub mod transcription;
+#[cfg(feature = "web-host")]
+pub mod web_host;
+pub mod workflows;
+
+pub const DEFAULT_REMOTE_HOST_PORT: u16 = 4777;
+pub const REMOTE_PROTOCOL_VERSION: u32 = 1;

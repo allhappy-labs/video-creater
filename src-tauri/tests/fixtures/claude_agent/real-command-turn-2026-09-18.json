@@ -1,0 +1,403 @@
+{
+  "costUsd": 0.057903,
+  "frames": [
+    {
+      "agents": [
+        "claude",
+        "Explore",
+        "general-purpose",
+        "Plan",
+        "statusline-setup"
+      ],
+      "analytics_disabled": false,
+      "apiKeySource": "none",
+      "capabilities": [
+        "interrupt_receipt_v1",
+        "interrupt_cancel_queued_v1",
+        "msg_lifecycle_v1"
+      ],
+      "claude_code_version": "2.1.270",
+      "cwd": "/tmp/.tmpsQ0zvy",
+      "fast_mode_disabled_reason": "sdk_opt_in_required",
+      "fast_mode_state": "off",
+      "mcp_servers": [
+        {
+          "name": "video-creater",
+          "status": "connected"
+        }
+      ],
+      "memory_paths": {
+        "auto": "/home/olhapi/.claude/projects/-tmp--tmpsQ0zvy/memory/"
+      },
+      "messaging_socket_path": "/run/user/1000/cc-socks/419870.sock",
+      "model": "claude-haiku-4-5-20251001",
+      "output_style": "default",
+      "permissionMode": "dontAsk",
+      "plugins": [],
+      "product_feedback_disabled": false,
+      "session_id": "6f07355e-4db6-4da4-9ff0-68b4c7f52fbc",
+      "skills": [],
+      "slash_commands": [],
+      "subtype": "init",
+      "tools": [
+        "StructuredOutput",
+        "mcp__video-creater__get_media",
+        "mcp__video-creater__get_timeline",
+        "mcp__video-creater__get_transcript",
+        "mcp__video-creater__inspect_color",
+        "mcp__video-creater__inspect_media",
+        "mcp__video-creater__inspect_timeline",
+        "mcp__video-creater__list_folders",
+        "mcp__video-creater__read_skill",
+        "mcp__video-creater__search_media",
+        "mcp__video-creater__video_creater_export_artifacts",
+        "mcp__video-creater__video_creater_export_profiles",
+        "mcp__video-creater__video_creater_generated_assets",
+        "mcp__video-creater__video_creater_generation_defaults",
+        "mcp__video-creater__video_creater_get_media",
+        "mcp__video-creater__video_creater_get_timeline",
+        "mcp__video-creater__video_creater_get_transcript",
+        "mcp__video-creater__video_creater_inspect_color",
+        "mcp__video-creater__video_creater_inspect_media",
+        "mcp__video-creater__video_creater_inspect_timeline",
+        "mcp__video-creater__video_creater_list_effects",
+        "mcp__video-creater__video_creater_list_folders",
+        "mcp__video-creater__video_creater_media_library",
+        "mcp__video-creater__video_creater_project_context",
+        "mcp__video-creater__video_creater_read_skill",
+        "mcp__video-creater__video_creater_render_reports",
+        "mcp__video-creater__video_creater_search_media",
+        "mcp__video-creater__video_creater_timeline",
+        "mcp__video-creater__video_creater_transcript_words"
+      ],
+      "type": "system",
+      "uuid": "96a1e470-6201-4f72-b8d7-8acd6d270e8d"
+    },
+    {
+      "rate_limit_info": {
+        "isUsingOverage": false,
+        "overageDisabledReason": "org_level_disabled",
+        "overageStatus": "rejected",
+        "rateLimitType": "five_hour",
+        "resetsAt": 1789734000,
+        "status": "allowed",
+        "unifiedWindows": {
+          "five_hour": {
+            "resetsAt": 1789734000,
+            "utilization": 0.61
+          },
+          "seven_day": {
+            "resetsAt": 1790254800,
+            "utilization": 0.15
+          }
+        }
+      },
+      "session_id": "6f07355e-4db6-4da4-9ff0-68b4c7f52fbc",
+      "type": "rate_limit_event",
+      "uuid": "9612ac2b-4e14-4569-a228-7976dcbaab71"
+    },
+    {
+      "message": {
+        "container": null,
+        "content": [
+          {
+            "signature": "EpALCrIBCBEYAipALmkhdXqwOy0wZDAGGo/p3VV6i5+nC6wmnWRrO/EtV1Aforf2jM2JqeFp0s7lQXK+G+IB99kNhdUFtsL2PdrvNzIZY2xhdWRlLWhhaWt1LTQtNS0yMDI1MTAwMTgAQgh0aGlua2luZ1okNWU3NmRkNTYtNmM4OS00MmU3LWJiMTYtM2NiMDE4YTNiNmJichBW6Wnt7RZ39reM9RxGaN7kiAEBqAGVtLTVBrABAhIMnUEuEfhKl4arXpEzGgzsuH1BK0JCI+UEgRUiMIdIxu6zELm4U/zhcTQkWj77bPWbyQjBO213TAE3PVJAN81T/iZAv/gVL6hyHA//lCqKCcrqaSR8lkWiyGyMvdxT0skrdTmWkTTvgGoPGXmVtcMyP1K1WtKHQOlHWfKET444TiUZlf5S9rqYkcvC0OZqk2Pn0Fo7Ocy5M3WIejKGIp/+u/Wet0DNNjSCmGAjOKGfaAaoaB9vc9nE3XM00K8f4DD96iw4Ow/rwrVxC3AEzR/MQJDzniDfC8z8d2LVPL9oragdRBajDp4duaKJJIvrYZtHIIP3JbFs7s066+gFmX6fo3TEkhr4PIHCi6S8DfUABAd33kSD1U9qBVBDdb1XjGbbfC0gLKZNfeASJajAvyIWQh9X2iNvMJq5XKpqhdev8lBbVGB5Uj4IrblUNqVDPfQ6guYf9uHDQKUlPtCTplNRoNnnybqycFOMRQuUqWonOdUw0NraACv7t956lG/PuE44VZkL8Ns4RPqKjhrW+Dr8nKOILtAskOHvq6PsTlLo89k0KFUhKAdLxWSc0v3nbqbHvGfRMaKJQ4KVN6r3zR/oPpYTMP+IQxa57nyADResf3DXRoyHR2Rw1AsT1umIaIKEZQ3Gi6vAShruCLWtQb1yjBWypdltXSzfFUyyub5UdHLZDuOAXDD7fs03clojKFphZmFs3w6BXsEOxfScSHKA0oLp/XKqnAK7wyMmnbwj9dDsTYdN/sOu9gG3FlD01KnKi2KGg8hVy6pzP46zl6B77lkm3Uu1ylX0Q6LYzGvjpTmhONhv6HaWM/imsPwyjI3QjpEvuSaxqL3sMIMydUo+R/I+jrOFWJ9jH91Snb+wtbBMa/TgNX6iJCVONoe8oneRrXWbgMOznsFSBwRkLc2MsMhKVi5UfoKF4Lv97AzjB+CXnGUjqm5ylw8FBMUBwfAJnwZ2WywHj0I3CDfpRMF2YvFoQpkzx2ZIil9JN1PTtN57i9WfW71SPVJ2n1frOnl60H2QMYm4r0xGAQJqFss9YyNKSBsiKr+hXKkdAYz+UhgDdS0FJZeVLWx2+dmRBx79ykxfDhLKfX1WptV/m3hannCCeGaMO9Xlif/GbIytZmimMtaCspUTafE5GASCBkTbu4YjrMiH5D5VnWqo/5QQMVMQf7tvXg4gJN4ejxrR7CjGWGdQxDhNd/VAr0dYSj8VbL+DqP8te/8YWQAdLk16ew11cXqVq8myISn3Ue7GB5EuIJip39pboJ8VILsgGRDYfdMTx7LkKFGNqdqa/2EZrmF9O8CTyr/tVGvbgc7fRwgxlSkL244UzvGPj8ND93sY3uj+k5jITD8o36xJxwspz1hf29FYZ/89YmreHALiiM9jAx8ANuq5kjZN70Hhex7fdALwlDpzvY0DYcl/JbTjHl34lagf5ZrHty/rQvYoIs9IF1WxANEOvgJlOST4SePRTQYImt1qcnuRzSM9lkA6Sz/VCnPQWjaY8kKMoB4s1uRVz3hbuKarAC0/C1+fQTlFu0iiMhJCnaELtBHevTdUwmdMiQeuMbA0feui2vEWPCn6QLSFjOaS4g9eABSDrgqKu+C59RHsl4reVXBm/bqJbfpHYz3m2/RM4iCG4SoPc4T+qk6AgcLoMwcYAQ==",
+            "thinking": "",
+            "type": "thinking"
+          }
+        ],
+        "context_management": null,
+        "diagnostics": null,
+        "id": "msg_011CfAnpVZvZeXigsgeMmVb7",
+        "model": "claude-haiku-4-5-20251001",
+        "role": "assistant",
+        "stop_details": null,
+        "stop_reason": null,
+        "stop_sequence": null,
+        "type": "message",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 26181,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 26181,
+          "cache_read_input_tokens": 0,
+          "inference_geo": "not_available",
+          "input_tokens": 9,
+          "output_tokens": 1,
+          "service_tier": "standard"
+        }
+      },
+      "parent_tool_use_id": null,
+      "request_id": "req_011CfAnpV69XmJ41wbEU1rbM",
+      "session_id": "6f07355e-4db6-4da4-9ff0-68b4c7f52fbc",
+      "timestamp": "2026-09-18T11:01:41.585Z",
+      "type": "assistant",
+      "uuid": "f2e78304-94a1-493f-b1ec-57d2d3ea5639"
+    },
+    {
+      "message": {
+        "container": null,
+        "content": [
+          {
+            "text": "```json\n{\n  \"summary\": \"Trim the first clip to its first two seconds.\",\n  \"edl\": [],\n  \"projectActions\": [\n    {\n      \"type\": \"trimItems\",\n      \"trims\": [\n        {\n          \"itemId\": \"video-1\",\n          \"startSeconds\": 0,\n          \"durationSeconds\": 2,\n          \"sourceIn\": 0,\n          \"sourceOut\": 2\n        }\n      ]\n    }\n  ],\n  \"renderReview\": null\n}\n```",
+            "type": "text"
+          }
+        ],
+        "context_management": null,
+        "diagnostics": null,
+        "id": "msg_011CfAnpVZvZeXigsgeMmVb7",
+        "model": "claude-haiku-4-5-20251001",
+        "role": "assistant",
+        "stop_details": null,
+        "stop_reason": null,
+        "stop_sequence": null,
+        "type": "message",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 26181,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 26181,
+          "cache_read_input_tokens": 0,
+          "inference_geo": "not_available",
+          "input_tokens": 9,
+          "output_tokens": 1,
+          "service_tier": "standard"
+        }
+      },
+      "parent_tool_use_id": null,
+      "request_id": "req_011CfAnpV69XmJ41wbEU1rbM",
+      "session_id": "6f07355e-4db6-4da4-9ff0-68b4c7f52fbc",
+      "timestamp": "2026-09-18T11:01:42.699Z",
+      "type": "assistant",
+      "uuid": "465ae8df-f655-4785-824a-9aec3b988134"
+    },
+    {
+      "message": {
+        "container": null,
+        "content": [
+          {
+            "caller": {
+              "type": "direct"
+            },
+            "id": "toolu_014XnVJRyhopFH2ew1wo2ARd",
+            "input": {
+              "edl": [],
+              "projectActions": [
+                {
+                  "trims": [
+                    {
+                      "durationSeconds": 2,
+                      "itemId": "video-1",
+                      "sourceIn": 0,
+                      "sourceOut": 2,
+                      "startSeconds": 0
+                    }
+                  ],
+                  "type": "trimItems"
+                }
+              ],
+              "renderReview": null,
+              "summary": "Trim the first clip to its first two seconds."
+            },
+            "name": "StructuredOutput",
+            "type": "tool_use"
+          }
+        ],
+        "context_management": null,
+        "diagnostics": null,
+        "id": "msg_011CfAnpVZvZeXigsgeMmVb7",
+        "model": "claude-haiku-4-5-20251001",
+        "role": "assistant",
+        "stop_details": null,
+        "stop_reason": null,
+        "stop_sequence": null,
+        "type": "message",
+        "usage": {
+          "cache_creation": {
+            "ephemeral_1h_input_tokens": 26181,
+            "ephemeral_5m_input_tokens": 0
+          },
+          "cache_creation_input_tokens": 26181,
+          "cache_read_input_tokens": 0,
+          "inference_geo": "not_available",
+          "input_tokens": 9,
+          "output_tokens": 1,
+          "service_tier": "standard"
+        }
+      },
+      "parent_tool_use_id": null,
+      "request_id": "req_011CfAnpV69XmJ41wbEU1rbM",
+      "session_id": "6f07355e-4db6-4da4-9ff0-68b4c7f52fbc",
+      "timestamp": "2026-09-18T11:01:43.685Z",
+      "type": "assistant",
+      "uuid": "5e229409-8f19-47f9-a37a-5ca615fb2101",
+      "wire_tool_inputs": {
+        "toolu_014XnVJRyhopFH2ew1wo2ARd": {
+          "edl": [],
+          "projectActions": [
+            {
+              "trims": [
+                {
+                  "durationSeconds": 2,
+                  "itemId": "video-1",
+                  "sourceIn": 0,
+                  "sourceOut": 2,
+                  "startSeconds": 0
+                }
+              ],
+              "type": "trimItems"
+            }
+          ],
+          "renderReview": null,
+          "summary": "Trim the first clip to its first two seconds."
+        }
+      }
+    },
+    {
+      "message": {
+        "content": [
+          {
+            "content": "Structured output provided successfully",
+            "tool_use_id": "toolu_014XnVJRyhopFH2ew1wo2ARd",
+            "type": "tool_result"
+          }
+        ],
+        "role": "user"
+      },
+      "parent_tool_use_id": null,
+      "session_id": "6f07355e-4db6-4da4-9ff0-68b4c7f52fbc",
+      "timestamp": "2026-09-18T11:01:43.776Z",
+      "tool_use_result": "Structured output provided successfully",
+      "type": "user",
+      "uuid": "0aed675b-3056-43dd-8753-562362d0c1ff"
+    },
+    {
+      "api_error_status": null,
+      "duration_api_ms": 7641,
+      "duration_ms": 6625,
+      "fast_mode_disabled_reason": "sdk_opt_in_required",
+      "fast_mode_state": "off",
+      "first_content_frame_ms": 725,
+      "is_error": false,
+      "modelUsage": {
+        "claude-haiku-4-5-20251001": {
+          "cacheCreationInputTokens": 26181,
+          "cacheReadInputTokens": 0,
+          "canonicalModel": "claude-haiku-4-5",
+          "contextWindow": 200000,
+          "costBasis": "list",
+          "costUSD": 0.057903,
+          "inputTokens": 2211,
+          "maxOutputTokens": 32000,
+          "outputTokens": 666,
+          "provider": "firstParty",
+          "thinkingTokens": 348,
+          "webSearchRequests": 0
+        }
+      },
+      "num_turns": 2,
+      "permission_denials": [],
+      "queued_turn_count": 0,
+      "result": "{\"summary\":\"Trim the first clip to its first two seconds.\",\"edl\":[],\"projectActions\":[{\"type\":\"trimItems\",\"trims\":[{\"itemId\":\"video-1\",\"startSeconds\":0,\"durationSeconds\":2,\"sourceIn\":0,\"sourceOut\":2}]}],\"renderReview\":null}",
+      "result_index": 0,
+      "session_id": "6f07355e-4db6-4da4-9ff0-68b4c7f52fbc",
+      "stop_reason": "tool_use",
+      "structured_output": {
+        "edl": [],
+        "projectActions": [
+          {
+            "trims": [
+              {
+                "durationSeconds": 2,
+                "itemId": "video-1",
+                "sourceIn": 0,
+                "sourceOut": 2,
+                "startSeconds": 0
+              }
+            ],
+            "type": "trimItems"
+          }
+        ],
+        "renderReview": null,
+        "summary": "Trim the first clip to its first two seconds."
+      },
+      "subagent_stats": {
+        "by_type": {},
+        "completed": 0,
+        "failed": 0,
+        "killed": {
+          "parent": 0,
+          "system": 0,
+          "user": 0
+        },
+        "max_depth": 0,
+        "refused": {
+          "budget": 0,
+          "concurrency_limit": 0,
+          "depth_limit": 0
+        },
+        "requested": {
+          "background": 0,
+          "foreground": 0,
+          "unset": 0
+        },
+        "spawned": 0,
+        "spawned_by_subagents": 0,
+        "started_in_background": 0
+      },
+      "subtype": "success",
+      "terminal_reason": "completed",
+      "time_to_request_ms": 78,
+      "total_cost_usd": 0.057903,
+      "ttft_ms": 4423,
+      "ttft_stream_ms": 725,
+      "type": "result",
+      "usage": {
+        "cache_creation": {
+          "ephemeral_1h_input_tokens": 26181,
+          "ephemeral_5m_input_tokens": 0
+        },
+        "cache_creation_input_tokens": 26181,
+        "cache_read_input_tokens": 0,
+        "inference_geo": "not_available",
+        "input_tokens": 9,
+        "iterations": [
+          {
+            "cache_creation": {
+              "ephemeral_1h_input_tokens": 26181,
+              "ephemeral_5m_input_tokens": 0
+            },
+            "cache_creation_input_tokens": 26181,
+            "cache_read_input_tokens": 0,
+            "input_tokens": 9,
+            "output_tokens": 649,
+            "type": "message"
+          }
+        ],
+        "output_tokens": 649,
+        "output_tokens_details": {
+          "thinking_tokens": 348
+        },
+        "server_tool_use": {
+          "web_fetch_requests": 0,
+          "web_search_requests": 0
+        },
+        "service_tier": "standard",
+        "speed": "standard"
+      },
+      "uuid": "32373b5c-f3c4-46da-9d99-25eb7ebcb4d7"
+    }
+  ],
+  "mcpServers": [
+    {
+      "name": "video-creater",
+      "status": "connected"
+    }
+  ],
+  "permissionDenials": [],
+  "toolCalls": [
+    "StructuredOutput"
+  ]
+}

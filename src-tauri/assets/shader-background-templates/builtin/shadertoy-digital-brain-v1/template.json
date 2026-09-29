@@ -1,0 +1,39 @@
+{
+  "id": "shadertoy-digital-brain-v1",
+  "version": 1,
+  "title": "Digital Brain",
+  "sourceKind": "built_in",
+  "category": "procedural",
+  "shaderProfileId": "shadertoy-digital-brain-v1",
+  "sourceUrl": "https://www.shadertoy.com/view/4sl3Dr",
+  "license": "Video Creater original procedural variant; ShaderToy URL retained as visual reference",
+  "shaderRef": "shader.frag",
+  "utilityRefs": [
+    "shared/utils.glsl"
+  ],
+  "placement": {
+    "trackKind": "hyperframe_scene",
+    "defaultStartSeconds": 0.0
+  },
+  "renderContract": {
+    "dimensions": "project",
+    "fps": "project",
+    "alpha": false
+  },
+  "preview": {
+    "thumbnailKind": "css",
+    "accentColor": "#60a5fa",
+    "secondaryColor": "#f97316",
+    "description": "blue-orange Voronoi circuit field with moving electron glints and dark vignette"
+  },
+  "visualTreatment": "blue-orange Voronoi circuit field with moving electron glints and dark vignette",
+  "motion": "slow rotational drift with flickering node paths and layered cell movement",
+  "safeZone": "keep bright circuit clusters away from lower captions and preserve 10% margins",
+  "avoid": "strobing, unreadable tiny circuit crawl, flat noise maps, and texture dependencies",
+  "agentSummary": "shadertoy-digital-brain-v1: Digital Brain. kind shader_background. blue-orange Voronoi circuit field with moving electron glints and dark vignette",
+  "notes": [
+    "Video Creater original procedural variant tuned from the visual reference, not a direct ShaderToy source port.",
+    "Uses shared Video Creater procedural utilities; no external sampler uniforms, mouse input, remote resources, or copied ShaderToy source are required."
+  ],
+  "defaultDurationSeconds": 4.0
+}

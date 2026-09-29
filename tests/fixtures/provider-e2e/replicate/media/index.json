@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "folders": [],
+  "assets": [
+    {
+      "id": "provider-e2e-generated-replicate-output",
+      "relativePath": "generated/provider-e2e-generated/replicate-output.png",
+      "kind": "generated",
+      "durationSeconds": 1.0,
+      "width": 1024,
+      "height": 768,
+      "fps": 1.0
+    }
+  ],
+  "analysis": []
+}

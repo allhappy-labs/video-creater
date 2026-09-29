@@ -1,0 +1,39 @@
+{
+  "id": "shadertoy-base-warp-fbm-v1",
+  "version": 1,
+  "title": "Base warp fBM",
+  "sourceKind": "built_in",
+  "category": "procedural",
+  "shaderProfileId": "shadertoy-base-warp-fbm-v1",
+  "sourceUrl": "https://www.shadertoy.com/view/tdG3Rd",
+  "license": "Video Creater original procedural variant; ShaderToy URL retained as visual reference",
+  "shaderRef": "shader.frag",
+  "utilityRefs": [
+    "shared/utils.glsl"
+  ],
+  "placement": {
+    "trackKind": "hyperframe_scene",
+    "defaultStartSeconds": 0.0
+  },
+  "renderContract": {
+    "dimensions": "project",
+    "fps": "project",
+    "alpha": false
+  },
+  "preview": {
+    "thumbnailKind": "css",
+    "accentColor": "#f472b6",
+    "secondaryColor": "#38bdf8",
+    "description": "pink and indigo domain-warped fBM field with soft smoke-like structure"
+  },
+  "visualTreatment": "pink and indigo domain-warped fBM field with soft smoke-like structure",
+  "motion": "slow nested noise drift with palette breathing and gentle vertical flow",
+  "safeZone": "keep center contrast soft enough for titles and maintain 10% margins",
+  "avoid": "strobing, harsh posterization, noisy pixel crawl, and full-screen white flashes",
+  "agentSummary": "shadertoy-base-warp-fbm-v1: Base warp fBM. kind shader_background. pink and indigo domain-warped fBM field with soft smoke-like structure",
+  "notes": [
+    "Video Creater original procedural variant tuned from the visual reference, not a direct ShaderToy source port.",
+    "Uses shared Video Creater procedural utilities; no external sampler uniforms, mouse input, remote resources, or copied ShaderToy source are required."
+  ],
+  "defaultDurationSeconds": 4.0
+}

@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 2,
+  "id": "provider-e2e-project",
+  "name": "Provider E2E",
+  "createdAt": "2026-07-05T20:29:16.291459+00:00",
+  "updatedAt": "2026-07-05T20:29:16.291459+00:00",
+  "layout": "split",
+  "files": {
+    "timeline": "timeline.json",
+    "media": "media/index.json",
+    "transcripts": "transcripts",
+    "templates": "templates",
+    "generated": "generated",
+    "renders": "renders",
+    "logs": "logs"
+  },
+  "renderSettings": {
+    "width": 1920,
+    "height": 1080,
+    "fps": 24.0,
+    "loudnessLufs": -14.0,
+    "captions": "burn_in"
+  },
+  "codexThreadId": null,
+  "jobs": [
+    {
+      "id": "provider-e2e-generated",
+      "kind": "generate_media",
+      "status": "completed",
+      "updatedAt": "2026-07-05T20:29:16.384791+00:00",
+      "workflow": {
+        "workflowId": "video-creater/provider-e2e-project/generate-media/provider-e2e-generated",
+        "workflowType": "VideoCreaterGenerateMediaWorkflow",
+        "taskQueue": "video-creater-workflows",
+        "runId": "provider-e2e-run",
+        "activityTypes": [
+          "PrepareProviderInputs",
+          "BuildFalGenerationRequest",
+          "RunMediaProviderGeneration",
+          "AttachGeneratedAssetFailure"
+        ]
+      },
+      "startRequest": {
+        "workflowId": "video-creater/provider-e2e-project/generate-media/provider-e2e-generated",
+        "workflowType": "VideoCreaterGenerateMediaWorkflow",
+        "taskQueue": "video-creater-workflows",
+        "input": {
+          "assetId": "provider-e2e-generated",
+          "jobId": "provider-e2e-generated",
+          "mockMode": false,
+          "projectDir": "output/provider-e2e/replicate",
+          "projectId": "provider-e2e-project",
+          "providerCredentialEnvVar": "REPLICATE_API_TOKEN"
+        },
+        "searchAttributes": {
+          "jobId": "provider-e2e-generated",
+          "projectId": "provider-e2e-project",
+          "workflowKind": "generate_media"
+        },
+        "activityTypes": [
+          "PrepareProviderInputs",
+          "BuildFalGenerationRequest",
+          "RunMediaProviderGeneration",
+          "AttachGeneratedAssetFailure"
+        ],
+        "idReusePolicy": "rejectDuplicate"
+      },
+      "providerRequest": {
+        "provider": "replicate",
+        "requestId": "64ncpvcmd5rp60cz6fw8sbe38m",
+        "statusUrl": "https://api.replicate.com/v1/predictions/64ncpvcmd5rp60cz6fw8sbe38m",
+        "responseUrl": "https://api.replicate.com/v1/predictions/64ncpvcmd5rp60cz6fw8sbe38m",
+        "cancelUrl": "https://api.replicate.com/v1/predictions/64ncpvcmd5rp60cz6fw8sbe38m/cancel",
+        "submittedAt": "2026-07-05T20:29:16.384791+00:00"
+      }
+    }
+  ],
+  "exportArtifacts": []
+}

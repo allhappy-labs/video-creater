@@ -1,0 +1,55 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "app": {
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:1420 ws://127.0.0.1:1420 http://127.0.0.1:*; img-src 'self' asset: http://asset.localhost http://127.0.0.1:*; media-src 'self' asset: http://asset.localhost blob: http://127.0.0.1:*; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  },
+  "build": {
+    "beforeBuildCommand": "pnpm build:linux-media-runtime --package src-tauri/resources/render-runtime-package && pnpm build:compatibility-decoder:linux && pnpm build:precompose-sidecar && pnpm build:linux-audio-enhancer && pnpm build:linux-semantic-encoder && pnpm build:linux-speech-worker && pnpm build:codex-sidecar && node scripts/build-macos-release.mjs --prepare-mcp-sidecar && pnpm build",
+    "beforeBundleCommand": ""
+  },
+  "bundle": {
+    "targets": [
+      "deb"
+    ],
+    "icon": [
+      "icons/icon.png"
+    ],
+    "externalBin": [
+      "binaries/video-creater-precompose-worker",
+      "binaries/video-creater-audio-enhance",
+      "binaries/video-creater-semantic-encoder",
+      "binaries/video-creater-speech",
+      "binaries/video-creater-compatibility-decoder",
+      "binaries/video-creater-codex",
+      "binaries/video-creater-mcp-server"
+    ],
+    "resources": {
+      "resources/render-runtime/": null,
+      "resources/compatibility-runtime/": null,
+      "resources/render-runtime-package/": "render-runtime/",
+      "resources/speech-runtime/": "speech-runtime/",
+      "resources/codex-runtime/codex-path/rg": "codex-runtime/codex-path/rg"
+    },
+    "linux": {
+      "deb": {
+        "depends": [
+          "libgstreamer1.0-0 (>= 1.24)",
+          "libges-1.0-0 (>= 1.24)",
+          "gstreamer1.0-plugins-base (>= 1.24)",
+          "gstreamer1.0-plugins-good (>= 1.24)",
+          "gstreamer1.0-plugins-bad (>= 1.24)",
+          "gstreamer1.0-gl (>= 1.24)",
+          "gstreamer1.0-x (>= 1.24)",
+          "bubblewrap"
+        ],
+        "recommends": [
+          "gnome-keyring",
+          "xdg-desktop-portal-gtk"
+        ],
+        "section": "video"
+      }
+    }
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "id": "shadertoy-mandelbulb-interior-v1",
+  "version": 1,
+  "title": "Inside the mandelbulb",
+  "sourceKind": "built_in",
+  "category": "fractal",
+  "shaderProfileId": "shadertoy-mandelbulb-interior-v1",
+  "sourceUrl": "https://www.shadertoy.com/view/mtScRc",
+  "license": "Video Creater original procedural variant; ShaderToy URL retained as visual reference",
+  "shaderRef": "shader.frag",
+  "utilityRefs": [
+    "shared/utils.glsl"
+  ],
+  "placement": {
+    "trackKind": "hyperframe_scene",
+    "defaultStartSeconds": 0.0
+  },
+  "renderContract": {
+    "dimensions": "project",
+    "fps": "project",
+    "alpha": false
+  },
+  "preview": {
+    "thumbnailKind": "css",
+    "accentColor": "#fb923c",
+    "secondaryColor": "#2563eb",
+    "description": "refractive mandelbulb interior with amber highlights and deep blue atmosphere"
+  },
+  "visualTreatment": "refractive mandelbulb interior with amber highlights and deep blue atmosphere",
+  "motion": "slow fractal rotation with camera hovering inside reflective crystalline folds",
+  "safeZone": "keep fractal detail inside the central 80% and reserve 10% margins for overlays",
+  "avoid": "strobing, excessively sharp aliasing, black unreadable interiors, and texture feedback passes",
+  "agentSummary": "shadertoy-mandelbulb-interior-v1: Inside the mandelbulb. kind shader_background. refractive mandelbulb interior with amber highlights and deep blue atmosphere",
+  "notes": [
+    "Video Creater original procedural variant tuned from the visual reference, not a direct ShaderToy source port.",
+    "Uses shared Video Creater procedural utilities; no external sampler uniforms, mouse input, remote resources, or copied ShaderToy source are required."
+  ],
+  "defaultDurationSeconds": 4.0
+}

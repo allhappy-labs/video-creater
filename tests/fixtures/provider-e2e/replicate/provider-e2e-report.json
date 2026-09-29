@@ -1,0 +1,30 @@
+{
+  "ok": true,
+  "provider": "replicate",
+  "model": "black-forest-labs/flux-schnell",
+  "outDir": "output/provider-e2e/replicate",
+  "reportPath": "provider-e2e-report.json",
+  "credentialEnvVar": "REPLICATE_API_TOKEN",
+  "credentialStatus": "present",
+  "command": "cargo run --manifest-path src-tauri/Cargo.toml --bin video-creater-provider-e2e -- --provider replicate --model black-forest-labs/flux-schnell --out-dir output/provider-e2e/replicate --prompt Video Creater parity evidence product launch frame --max-status-polls 30 --poll-interval-ms 3000",
+  "exitCode": 0,
+  "signal": null,
+  "result": {
+    "artifactPath": "output/provider-e2e/replicate/generated/provider-e2e-generated/replicate-output.png",
+    "jobStatus": "Completed",
+    "model": "black-forest-labs/flux-schnell",
+    "ok": true,
+    "outputCount": 1,
+    "projectDir": "output/provider-e2e/replicate",
+    "provider": "replicate",
+    "providerRequest": {
+      "cancelUrl": "https://api.replicate.com/v1/predictions/64ncpvcmd5rp60cz6fw8sbe38m/cancel",
+      "provider": "replicate",
+      "requestId": "64ncpvcmd5rp60cz6fw8sbe38m",
+      "responseUrl": "https://api.replicate.com/v1/predictions/64ncpvcmd5rp60cz6fw8sbe38m",
+      "statusUrl": "https://api.replicate.com/v1/predictions/64ncpvcmd5rp60cz6fw8sbe38m",
+      "submittedAt": "2026-07-05T20:29:16.384791+00:00"
+    }
+  },
+  "error": null
+}

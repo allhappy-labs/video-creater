@@ -1,0 +1,50 @@
+[package]
+name = "dotlottie-rs"
+version = "0.1.58"
+edition = "2021"
+description = "Pinned native CPU subset of dotlottie-rs for Video Creater"
+license = "MIT"
+repository = "https://github.com/LottieFiles/dotlottie-rs"
+links = "thorvg"
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+default = []
+dotlottie = ["dep:zip"]
+tvg = []
+tvg-cpu = ["tvg"]
+tvg-jpg = []
+tvg-lottie-expressions = []
+tvg-png = []
+tvg-webp = []
+
+# Forbidden features remain declared so accidental use produces the explicit
+# compile error in lib.rs rather than silently widening the source closure.
+audio = []
+c_api = []
+dev = []
+state-machines = []
+theming = []
+tracking_allocator = []
+tvg-gl = []
+tvg-log = []
+tvg-otf = []
+tvg-simd = []
+tvg-threads = []
+tvg-ttf = []
+tvg-wg = []
+wasm-bindgen-api = []
+webgl = []
+webgpu = []
+
+[dependencies]
+rustc-hash = "2.1.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", default-features = false, features = ["preserve_order"] }
+zip = { version = "2.4.2", default-features = false, features = ["deflate"], optional = true }
+
+[build-dependencies]
+bindgen = "0.72.0"
+cc = "1.2"

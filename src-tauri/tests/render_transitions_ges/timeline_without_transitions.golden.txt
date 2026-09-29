@@ -1,0 +1,69 @@
+layer priority=0
+  GESUriClip start=0.500000 inpoint=0.500000 duration=1.000000 uri=<dir>/media/red.webm
+    core GESVideoUriSource track=TrackType(VIDEO)
+      alpha=1.0000
+      posx=32
+      posy=18
+      width=64
+      height=36
+layer priority=1
+  GESUriClip start=0.000000 inpoint=1.000000 duration=1.500000 uri=<dir>/media/red.webm
+    core GESVideoUriSource track=TrackType(VIDEO)
+      alpha=1.0000
+      posx=0
+      posy=0
+      width=0
+      height=0
+    effect GESEffect track=TrackType(VIDEO) bin=Some("rotate angle=0.0")
+      angle=0.0000 binding=absolute/linear[0.000000:0.0000, 1.500000:2.3562]
+    effect GESEffect track=TrackType(VIDEO) bin=Some("videocrop top=0 right=0 bottom=0 left=13")
+      top=0
+      right=0
+      bottom=0
+      left=13
+  GESUriClip start=1.500000 inpoint=0.000000 duration=2.000000 uri=<dir>/media/blue.webm
+    core GESVideoUriSource track=TrackType(VIDEO)
+      alpha=0.8000 binding=absolute/linear[0.000000:0.0000, 0.500000:0.5500, 1.000000:0.9000, 1.750000:0.9000, 2.000000:0.0000]
+      posx=0 binding=absolute/linear[0.000000:0.0000, 2.000000:10.0000]
+      posy=0
+      width=0 binding=absolute/linear[0.000000:128.0000, 2.000000:192.0000]
+      height=0 binding=absolute/linear[0.000000:72.0000, 2.000000:108.0000]
+layer priority=2
+  GESUriClip start=0.000000 inpoint=0.500000 duration=3.000000 uri=<dir>/media/tone-a.webm
+    core GESAudioUriSource track=TrackType(AUDIO)
+      volume=0.5012
+---
+layer priority=0
+  GESUriClip start=0.250000 inpoint=0.500000 duration=1.000000 uri=<dir>/media/red.webm
+    core GESVideoUriSource track=TrackType(VIDEO)
+      alpha=1.0000
+      posx=32
+      posy=18
+      width=64
+      height=36
+layer priority=1
+  GESUriClip start=0.000000 inpoint=1.250000 duration=1.250000 uri=<dir>/media/red.webm
+    core GESVideoUriSource track=TrackType(VIDEO)
+      alpha=1.0000
+      posx=0
+      posy=0
+      width=0
+      height=0
+    effect GESEffect track=TrackType(VIDEO) bin=Some("rotate angle=0.0")
+      angle=0.0000 binding=absolute/linear[0.000000:0.0000, 1.250000:1.9635]
+    effect GESEffect track=TrackType(VIDEO) bin=Some("videocrop top=0 right=0 bottom=0 left=13")
+      top=0
+      right=0
+      bottom=0
+      left=13
+  GESUriClip start=1.250000 inpoint=0.000000 duration=2.000000 uri=<dir>/media/blue.webm
+    core GESVideoUriSource track=TrackType(VIDEO)
+      alpha=0.8000 binding=absolute/linear[0.000000:0.0000, 0.500000:0.5500, 1.000000:0.9000, 1.750000:0.9000, 2.000000:0.0000]
+      posx=0 binding=absolute/linear[0.000000:0.0000, 2.000000:10.0000]
+      posy=0
+      width=0 binding=absolute/linear[0.000000:128.0000, 2.000000:192.0000]
+      height=0 binding=absolute/linear[0.000000:72.0000, 2.000000:108.0000]
+layer priority=2
+  GESUriClip start=0.000000 inpoint=0.750000 duration=2.750000 uri=<dir>/media/tone-a.webm
+    core GESAudioUriSource track=TrackType(AUDIO)
+      volume=0.5012

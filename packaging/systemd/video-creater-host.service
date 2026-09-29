@@ -1,0 +1,29 @@
+[Unit]
+Description=Video Creater remote web host
+Documentation=file:///usr/share/doc/video-creater/remote-access.md
+After=network-online.target tailscaled.service
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=3
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/video-creater/remote-host.env
+ExecStart=%h/.local/lib/video-creater-host/bin/video-creater-host --bind 127.0.0.1:4777 --assets-dir %h/.local/lib/video-creater-host/web
+Restart=on-failure
+RestartSec=5
+RuntimeDirectory=video-creater-host
+RuntimeDirectoryMode=0700
+StateDirectory=video-creater
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/state/video-creater -%h/.codex
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=default.target

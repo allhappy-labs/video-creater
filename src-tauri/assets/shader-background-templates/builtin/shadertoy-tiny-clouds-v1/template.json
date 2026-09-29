@@ -1,0 +1,39 @@
+{
+  "id": "shadertoy-tiny-clouds-v1",
+  "version": 1,
+  "title": "Tiny Clouds",
+  "sourceKind": "built_in",
+  "category": "clouds",
+  "shaderProfileId": "shadertoy-tiny-clouds-v1",
+  "sourceUrl": "https://www.shadertoy.com/view/lsBfDz",
+  "license": "Video Creater original procedural variant; ShaderToy URL retained as visual reference",
+  "shaderRef": "shader.frag",
+  "utilityRefs": [
+    "shared/utils.glsl"
+  ],
+  "placement": {
+    "trackKind": "hyperframe_scene",
+    "defaultStartSeconds": 0.0
+  },
+  "renderContract": {
+    "dimensions": "project",
+    "fps": "project",
+    "alpha": false
+  },
+  "preview": {
+    "thumbnailKind": "css",
+    "accentColor": "#93c5fd",
+    "secondaryColor": "#fbbf24",
+    "description": "compact stylized cloud volume with powder blue gradients and soft marching haze"
+  },
+  "visualTreatment": "compact stylized cloud volume with powder blue gradients and soft marching haze",
+  "motion": "short forward cloud drift with procedural billows and subtle luminance shimmer",
+  "safeZone": "keep center readable for text and preserve 10% margins around dense cloud ridges",
+  "avoid": "strobing, overbright fog walls, texture-only noise, and flat static cloud slabs",
+  "agentSummary": "shadertoy-tiny-clouds-v1: Tiny Clouds. kind shader_background. compact stylized cloud volume with powder blue gradients and soft marching haze",
+  "notes": [
+    "Video Creater original procedural variant tuned from the visual reference, not a direct ShaderToy source port.",
+    "Uses shared Video Creater procedural utilities; no external sampler uniforms, mouse input, remote resources, or copied ShaderToy source are required."
+  ],
+  "defaultDurationSeconds": 4.0
+}

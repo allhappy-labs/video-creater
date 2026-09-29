@@ -1,0 +1,39 @@
+{
+  "id": "shadertoy-crumpled-wave-v1",
+  "version": 1,
+  "title": "crumpledWave",
+  "sourceKind": "built_in",
+  "category": "procedural",
+  "shaderProfileId": "shadertoy-crumpled-wave-v1",
+  "sourceUrl": "https://www.shadertoy.com/view/3ttSzr",
+  "license": "Video Creater original procedural variant; ShaderToy URL retained as visual reference",
+  "shaderRef": "shader.frag",
+  "utilityRefs": [
+    "shared/utils.glsl"
+  ],
+  "placement": {
+    "trackKind": "hyperframe_scene",
+    "defaultStartSeconds": 0.0
+  },
+  "renderContract": {
+    "dimensions": "project",
+    "fps": "project",
+    "alpha": false
+  },
+  "preview": {
+    "thumbnailKind": "css",
+    "accentColor": "#38bdf8",
+    "secondaryColor": "#1d4ed8",
+    "description": "crumpled cyan wave sheet with smooth layered interference bands"
+  },
+  "visualTreatment": "crumpled cyan wave sheet with smooth layered interference bands",
+  "motion": "overlapping sine folds travel diagonally with subtle noise displacement",
+  "safeZone": "keep the wave gradient readable under titles and preserve 10% margins",
+  "avoid": "strobing, clipped saturated channels, static flat gradients, and tiny pattern shimmer",
+  "agentSummary": "shadertoy-crumpled-wave-v1: crumpledWave. kind shader_background. crumpled cyan wave sheet with smooth layered interference bands",
+  "notes": [
+    "Video Creater original procedural variant tuned from the visual reference, not a direct ShaderToy source port.",
+    "Uses shared Video Creater procedural utilities; no external sampler uniforms, mouse input, remote resources, or copied ShaderToy source are required."
+  ],
+  "defaultDurationSeconds": 4.0
+}

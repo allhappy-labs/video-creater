@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* shadcn semantic tokens (Home and Settings consume these) */
+    --background: 228 11% 7%;
+    --foreground: 228 7% 92%;
+    --card: 228 9% 10%;
+    --card-foreground: 228 7% 92%;
+    --popover: 230 9% 13%;
+    --popover-foreground: 228 7% 92%;
+    --primary: 185 74% 48%;
+    --primary-foreground: 185 83% 9%;
+    --secondary: 230 9% 14%;
+    --secondary-foreground: 228 7% 92%;
+    --muted: 230 9% 14%;
+    --muted-foreground: 222 6% 57%;
+    --accent: 185 74% 48%;
+    --accent-foreground: 185 83% 9%;
+    --destructive: 0 100% 71%;
+    --destructive-foreground: 228 11% 7%;
+    --border: 222 10% 16%;
+    --input: 230 9% 14%;
+    --ring: 185 74% 48%;
+    --radius: 0.5rem;
+
+    /* editor surface tokens */
+    --panel: 228 9% 10%;
+    --raised: 230 9% 14%;
+    --hover: 234 9% 18%;
+    --line: 222 10% 16%;
+    --dim: 222 6% 39%;
+    --accent-soft: 186 65% 16%;
+    --warning: 41 89% 66%;
+    --success: 154 67% 62%;
+    --keyframe: 47 100% 64.5%;
+    --clip-video: 209 49% 36%;
+    --clip-text: 257 62% 59%;
+    --clip-caption: 36 65% 48%;
+    --clip-audio: 167 57% 32%;
+    --clip-graphics: 333 44% 50%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    margin: 0;
+    font-size: 13px;
+    font-family:
+      Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+      sans-serif;
+  }
+}
+
+@layer utilities {
+  .tabular-time {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xmeml version="5">
+  <sequence>
+    <name>Test Project</name>
+    <duration>96</duration>
+    <rate>
+      <timebase>24</timebase>
+      <ntsc>FALSE</ntsc>
+    </rate>
+    <media>
+      <video>
+        <format>
+          <samplecharacteristics>
+            <width>1920</width>
+            <height>1080</height>
+          </samplecharacteristics>
+        </format>
+        <track>
+          <clipitem id="item-1">
+            <name>Opening clip</name>
+            <start>0</start>
+            <end>96</end>
+            <in>0</in>
+            <out>96</out>
+            <file>
+              <name>input.mp4</name>
+              <pathurl>file://media/input.mp4</pathurl>
+              <duration>288</duration>
+            </file>
+          </clipitem>
+        </track>
+        <track>
+          <generatoritem id="caption-item-1">
+            <name>Hook caption</name>
+            <start>12</start>
+            <end>48</end>
+            <effect>
+              <name>Text</name>
+              <effectid>Text</effectid>
+              <parameter>
+                <name>Text</name>
+                <value>Launch &amp; grow &lt;fast&gt;</value>
+              </parameter>
+            </effect>
+          </generatoritem>
+        </track>
+      </video>
+      <audio>
+        <track>
+        </track>
+      </audio>
+    </media>
+  </sequence>
+</xmeml>

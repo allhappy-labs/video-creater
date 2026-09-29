@@ -1,0 +1,366 @@
+{
+  "schemaVersion": 1,
+  "contentRevision": 0,
+  "id": "transition-preview-render-parity",
+  "name": "Transition preview/render parity",
+  "createdAt": "2026-06-11T00:00:00Z",
+  "updatedAt": "2026-06-11T00:00:00Z",
+  "media": [
+    {
+      "id": "warm",
+      "name": "warm",
+      "relativePath": "media/warm.webm",
+      "kind": "video",
+      "durationSeconds": 4.0,
+      "width": 128,
+      "height": 72,
+      "fps": 24.0
+    },
+    {
+      "id": "cool",
+      "name": "cool",
+      "relativePath": "media/cool.webm",
+      "kind": "video",
+      "durationSeconds": 4.0,
+      "width": 128,
+      "height": 72,
+      "fps": 24.0
+    }
+  ],
+  "mediaAnalysis": [],
+  "mediaSilenceRanges": [],
+  "mediaFolders": [],
+  "templateOverrides": [],
+  "generatedAssets": [],
+  "renderReports": [],
+  "exportArtifacts": [],
+  "transcripts": [],
+  "timelines": [
+    {
+      "id": "main",
+      "name": "Timeline 1",
+      "timeline": {
+        "durationSeconds": 10.0,
+        "tracks": [
+          {
+            "id": "track-video",
+            "name": "Video",
+            "kind": "video",
+            "locked": false,
+            "syncLocked": false,
+            "enabled": true,
+            "items": [
+              {
+                "id": "clip-0",
+                "kind": "video_clip",
+                "startSeconds": 0.0,
+                "durationSeconds": 2.0,
+                "source": {
+                  "type": "media",
+                  "mediaId": "warm"
+                },
+                "label": "clip-0",
+                "properties": {
+                  "sourceIn": 1.0,
+                  "sourceOut": 3.0
+                }
+              },
+              {
+                "id": "clip-1",
+                "kind": "video_clip",
+                "startSeconds": 2.0,
+                "durationSeconds": 2.0,
+                "source": {
+                  "type": "media",
+                  "mediaId": "cool"
+                },
+                "label": "clip-1",
+                "properties": {
+                  "sourceIn": 1.0,
+                  "sourceOut": 3.0
+                }
+              },
+              {
+                "id": "clip-2",
+                "kind": "video_clip",
+                "startSeconds": 4.0,
+                "durationSeconds": 2.0,
+                "source": {
+                  "type": "media",
+                  "mediaId": "warm"
+                },
+                "label": "clip-2",
+                "properties": {
+                  "sourceIn": 1.0,
+                  "sourceOut": 3.0
+                }
+              },
+              {
+                "id": "clip-3",
+                "kind": "video_clip",
+                "startSeconds": 6.0,
+                "durationSeconds": 2.0,
+                "source": {
+                  "type": "media",
+                  "mediaId": "cool"
+                },
+                "label": "clip-3",
+                "properties": {
+                  "sourceIn": 1.0,
+                  "sourceOut": 3.0
+                }
+              },
+              {
+                "id": "clip-4",
+                "kind": "video_clip",
+                "startSeconds": 8.0,
+                "durationSeconds": 2.0,
+                "source": {
+                  "type": "media",
+                  "mediaId": "warm"
+                },
+                "label": "clip-4",
+                "properties": {
+                  "sourceIn": 1.0,
+                  "sourceOut": 3.0
+                }
+              }
+            ],
+            "transitions": [
+              {
+                "id": "clip-0-clip-1",
+                "leftItemId": "clip-0",
+                "rightItemId": "clip-1",
+                "kind": "crossfade",
+                "durationSeconds": 1.0
+              },
+              {
+                "id": "clip-1-clip-2",
+                "leftItemId": "clip-1",
+                "rightItemId": "clip-2",
+                "kind": "dipToBlack",
+                "durationSeconds": 1.0
+              },
+              {
+                "id": "clip-2-clip-3",
+                "leftItemId": "clip-2",
+                "rightItemId": "clip-3",
+                "kind": "dipToWhite",
+                "durationSeconds": 1.0
+              },
+              {
+                "id": "clip-3-clip-4",
+                "leftItemId": "clip-3",
+                "rightItemId": "clip-4",
+                "kind": "wipe",
+                "durationSeconds": 1.0
+              }
+            ]
+          },
+          {
+            "id": "track-scenes",
+            "name": "HyperFrames",
+            "kind": "hyperframe_scene",
+            "locked": false,
+            "syncLocked": false,
+            "enabled": true,
+            "items": []
+          },
+          {
+            "id": "track-overlays",
+            "name": "Overlays",
+            "kind": "overlay",
+            "locked": false,
+            "syncLocked": false,
+            "enabled": true,
+            "items": []
+          },
+          {
+            "id": "track-captions",
+            "name": "Captions",
+            "kind": "caption",
+            "locked": false,
+            "syncLocked": false,
+            "enabled": true,
+            "items": []
+          },
+          {
+            "id": "track-audio",
+            "name": "Audio",
+            "kind": "audio",
+            "locked": false,
+            "syncLocked": false,
+            "enabled": true,
+            "items": []
+          }
+        ]
+      }
+    }
+  ],
+  "activeTimelineId": "main",
+  "timeline": {
+    "durationSeconds": 10.0,
+    "tracks": [
+      {
+        "id": "track-video",
+        "name": "Video",
+        "kind": "video",
+        "locked": false,
+        "syncLocked": false,
+        "enabled": true,
+        "items": [
+          {
+            "id": "clip-0",
+            "kind": "video_clip",
+            "startSeconds": 0.0,
+            "durationSeconds": 2.0,
+            "source": {
+              "type": "media",
+              "mediaId": "warm"
+            },
+            "label": "clip-0",
+            "properties": {
+              "sourceIn": 1.0,
+              "sourceOut": 3.0
+            }
+          },
+          {
+            "id": "clip-1",
+            "kind": "video_clip",
+            "startSeconds": 2.0,
+            "durationSeconds": 2.0,
+            "source": {
+              "type": "media",
+              "mediaId": "cool"
+            },
+            "label": "clip-1",
+            "properties": {
+              "sourceIn": 1.0,
+              "sourceOut": 3.0
+            }
+          },
+          {
+            "id": "clip-2",
+            "kind": "video_clip",
+            "startSeconds": 4.0,
+            "durationSeconds": 2.0,
+            "source": {
+              "type": "media",
+              "mediaId": "warm"
+            },
+            "label": "clip-2",
+            "properties": {
+              "sourceIn": 1.0,
+              "sourceOut": 3.0
+            }
+          },
+          {
+            "id": "clip-3",
+            "kind": "video_clip",
+            "startSeconds": 6.0,
+            "durationSeconds": 2.0,
+            "source": {
+              "type": "media",
+              "mediaId": "cool"
+            },
+            "label": "clip-3",
+            "properties": {
+              "sourceIn": 1.0,
+              "sourceOut": 3.0
+            }
+          },
+          {
+            "id": "clip-4",
+            "kind": "video_clip",
+            "startSeconds": 8.0,
+            "durationSeconds": 2.0,
+            "source": {
+              "type": "media",
+              "mediaId": "warm"
+            },
+            "label": "clip-4",
+            "properties": {
+              "sourceIn": 1.0,
+              "sourceOut": 3.0
+            }
+          }
+        ],
+        "transitions": [
+          {
+            "id": "clip-0-clip-1",
+            "leftItemId": "clip-0",
+            "rightItemId": "clip-1",
+            "kind": "crossfade",
+            "durationSeconds": 1.0
+          },
+          {
+            "id": "clip-1-clip-2",
+            "leftItemId": "clip-1",
+            "rightItemId": "clip-2",
+            "kind": "dipToBlack",
+            "durationSeconds": 1.0
+          },
+          {
+            "id": "clip-2-clip-3",
+            "leftItemId": "clip-2",
+            "rightItemId": "clip-3",
+            "kind": "dipToWhite",
+            "durationSeconds": 1.0
+          },
+          {
+            "id": "clip-3-clip-4",
+            "leftItemId": "clip-3",
+            "rightItemId": "clip-4",
+            "kind": "wipe",
+            "durationSeconds": 1.0
+          }
+        ]
+      },
+      {
+        "id": "track-scenes",
+        "name": "HyperFrames",
+        "kind": "hyperframe_scene",
+        "locked": false,
+        "syncLocked": false,
+        "enabled": true,
+        "items": []
+      },
+      {
+        "id": "track-overlays",
+        "name": "Overlays",
+        "kind": "overlay",
+        "locked": false,
+        "syncLocked": false,
+        "enabled": true,
+        "items": []
+      },
+      {
+        "id": "track-captions",
+        "name": "Captions",
+        "kind": "caption",
+        "locked": false,
+        "syncLocked": false,
+        "enabled": true,
+        "items": []
+      },
+      {
+        "id": "track-audio",
+        "name": "Audio",
+        "kind": "audio",
+        "locked": false,
+        "syncLocked": false,
+        "enabled": true,
+        "items": []
+      }
+    ]
+  },
+  "renderSettings": {
+    "width": 128,
+    "height": 72,
+    "fps": 24.0,
+    "loudnessLufs": -14.0,
+    "captions": "burn_in"
+  },
+  "codexThreadId": null,
+  "jobs": []
+}

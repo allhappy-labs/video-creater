@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "files": [
+    {
+      "path": "media/input.mp4",
+      "bytes": 152625,
+      "sha256": "5b338334663eb509053ca0c2502b74db776834af4833625f5f340f6462fe3d38"
+    },
+    {
+      "path": "media/voiceover.m4a",
+      "bytes": 50139,
+      "sha256": "4132b4c6810b18ac17da831cb1525568f26be8b6b5fbf2774fd741c30c5b6ad2"
+    },
+    {
+      "path": "sample/generated/product-reveal.mp4",
+      "bytes": 122623,
+      "sha256": "b0adb915a1e23e58c7c70c5472925a193ff6d7119be040b3f4e8424fc7e9acf7"
+    }
+  ]
+}

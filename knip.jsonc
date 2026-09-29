@@ -1,0 +1,35 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    // Invoked by browser-visual-qa through the configurable PWCLI command contract.
+    "scripts/playwright-cli.mjs",
+    // Spawned by playwright.remote.config.ts as the real Rust-host web server.
+    "scripts/remote-host-e2e.mjs",
+    // Spawned as the isolated Vite process for synchronous visual-QA commands.
+    "scripts/vite-visual-qa-server.mjs"
+  ],
+  "ignore": [
+    // Vite discovers this configuration by convention.
+    "postcss.config.js",
+    // Static design mockup sources archived with specs; not application code.
+    "docs/superpowers/specs/assets/**"
+  ],
+  "ignoreDependencies": [
+    // PostCSS resolves the string-key plugin declaration in postcss.config.js.
+    "autoprefixer"
+  ],
+  "ignoreBinaries": [
+    // Host build/runtime prerequisites, not npm packages.
+    "brew",
+    "cc",
+    "ffmpeg",
+    "gst-inspect-1.0",
+    "ldd",
+    "nasm",
+    "ninja",
+    "pkg-config",
+    "readelf",
+    "rustc",
+    "swift"
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "id": "shadertoy-kaleidoscope-tunnel-v1",
+  "version": 1,
+  "title": "Kaleidoscope Tunnel",
+  "sourceKind": "built_in",
+  "category": "tunnel",
+  "shaderProfileId": "shadertoy-kaleidoscope-tunnel-v1",
+  "sourceUrl": "https://www.shadertoy.com/view/WsSGWG",
+  "license": "Video Creater original procedural variant; ShaderToy URL retained as visual reference",
+  "shaderRef": "shader.frag",
+  "utilityRefs": [
+    "shared/utils.glsl"
+  ],
+  "placement": {
+    "trackKind": "hyperframe_scene",
+    "defaultStartSeconds": 0.0
+  },
+  "renderContract": {
+    "dimensions": "project",
+    "fps": "project",
+    "alpha": false
+  },
+  "preview": {
+    "thumbnailKind": "css",
+    "accentColor": "#8b5cf6",
+    "secondaryColor": "#38bdf8",
+    "description": "radial kaleidoscope tunnel with layered dust, rectangular motifs, and violet-blue depth"
+  },
+  "visualTreatment": "radial kaleidoscope tunnel with layered dust, rectangular motifs, and violet-blue depth",
+  "motion": "forward tunnel pulses with folded rotational symmetry and staggered light layers",
+  "safeZone": "keep the vanishing point near center and reserve 10% margins from hard flashes",
+  "avoid": "strobing, nausea-inducing rapid cuts, hard white centers, and unreadable high-frequency grids",
+  "agentSummary": "shadertoy-kaleidoscope-tunnel-v1: Kaleidoscope Tunnel. kind shader_background. radial kaleidoscope tunnel with layered dust, rectangular motifs, and violet-blue depth",
+  "notes": [
+    "Video Creater original procedural variant tuned from the visual reference, not a direct ShaderToy source port.",
+    "Uses shared Video Creater procedural utilities; no external sampler uniforms, mouse input, remote resources, or copied ShaderToy source are required."
+  ],
+  "defaultDurationSeconds": 4.0
+}

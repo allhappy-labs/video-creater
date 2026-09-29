@@ -1,0 +1,39 @@
+{
+  "id": "shadertoy-starry-planes-v1",
+  "version": 1,
+  "title": "Starry planes",
+  "sourceKind": "built_in",
+  "category": "tunnel",
+  "shaderProfileId": "shadertoy-starry-planes-v1",
+  "sourceUrl": "https://www.shadertoy.com/view/MfjyWK",
+  "license": "Video Creater original procedural variant; ShaderToy URL retained as visual reference",
+  "shaderRef": "shader.frag",
+  "utilityRefs": [
+    "shared/utils.glsl"
+  ],
+  "placement": {
+    "trackKind": "hyperframe_scene",
+    "defaultStartSeconds": 0.0
+  },
+  "renderContract": {
+    "dimensions": "project",
+    "fps": "project",
+    "alpha": false
+  },
+  "preview": {
+    "thumbnailKind": "css",
+    "accentColor": "#f0abfc",
+    "secondaryColor": "#60a5fa",
+    "description": "stacked translucent star planes flying through a dark curved path"
+  },
+  "visualTreatment": "stacked translucent star planes flying through a dark curved path",
+  "motion": "forward plane march with star bursts fading in depth and gentle camera drift",
+  "safeZone": "keep brightest stars inside central 80% while preserving 10% edge margins",
+  "avoid": "strobing, dense star clutter over captions, hard aliasing, and static star wallpaper",
+  "agentSummary": "shadertoy-starry-planes-v1: Starry planes. kind shader_background. stacked translucent star planes flying through a dark curved path",
+  "notes": [
+    "Video Creater original procedural variant tuned from the visual reference, not a direct ShaderToy source port.",
+    "Uses shared Video Creater procedural utilities; no external sampler uniforms, mouse input, remote resources, or copied ShaderToy source are required."
+  ],
+  "defaultDurationSeconds": 4.0
+}

@@ -1,0 +1,190 @@
+//! Audited operation metadata shared by desktop and remote transports.
+//!
+//! This inventory is deliberately declarative. Adding a production Tauri command without
+//! classifying its remote posture fails the source-policy test.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RemoteSupport {
+    Remote,
+    DesktopOnly,
+    Internal,
+    Removed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum AuthorizationScope {
+    Public,
+    Session,
+    ProjectRead,
+    ProjectWrite,
+    HostAdmin,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MutationClass {
+    Read,
+    ProjectMutation,
+    HostMutation,
+    JobMutation,
+    ExternalMutation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OperationDescriptor {
+    pub name: &'static str,
+    pub support: RemoteSupport,
+    pub authorization: AuthorizationScope,
+    pub mutation: MutationClass,
+    pub requires_project: bool,
+    pub requires_revision: bool,
+    pub max_request_bytes: usize,
+    pub browser_replacement: Option<&'static str>,
+}
+
+macro_rules! operation {
+    ($name:literal, $support:ident, $authorization:ident, $mutation:ident, $project:literal, $revision:literal, $limit:literal, $replacement:expr) => {
+        OperationDescriptor {
+            name: $name,
+            support: RemoteSupport::$support,
+            authorization: AuthorizationScope::$authorization,
+            mutation: MutationClass::$mutation,
+            requires_project: $project,
+            requires_revision: $revision,
+            max_request_bytes: $limit,
+            browser_replacement: $replacement,
+        }
+    };
+}
+
+#[rustfmt::skip]
+pub const OPERATION_INVENTORY: &[OperationDescriptor] = &[
+    operation!("abort_settings_acceptance_run", Internal, HostAdmin, HostMutation, false, false, 65536, None),
+    operation!("analyze_media_for_edit_in_split_project_folder", Remote, ProjectWrite, JobMutation, true, true, 1048576, None),
+    operation!("analyze_project_speech", Remote, ProjectWrite, JobMutation, true, true, 1048576, None),
+    operation!("apply_agent_session_action_to_split_project_folder", Remote, ProjectWrite, ProjectMutation, true, true, 1048576, None),
+    operation!("apply_codex_conversation_proposal", Remote, ProjectWrite, ProjectMutation, true, true, 1048576, None),
+    operation!("apply_project_action_to_project", Internal, ProjectWrite, ProjectMutation, true, true, 1048576, None),
+    operation!("apply_project_action_to_split_project_folder", Remote, ProjectWrite, ProjectMutation, true, true, 1048576, None),
+    operation!("apply_project_actions_to_split_project_folder", Remote, ProjectWrite, ProjectMutation, true, true, 4194304, None),
+    operation!("apply_timeline_patch_to_project", Internal, ProjectWrite, ProjectMutation, true, true, 4194304, None),
+    operation!("assign_project_media_speaker", Remote, ProjectWrite, ProjectMutation, true, true, 1048576, None),
+    operation!("build_temporal_codex_edit_start_request", Internal, ProjectWrite, Read, true, false, 1048576, None),
+    operation!("build_temporal_export_media_start_request", Internal, ProjectWrite, Read, true, false, 1048576, None),
+    operation!("build_temporal_export_nle_xml_start_request", Internal, ProjectWrite, Read, true, false, 1048576, None),
+    operation!("build_temporal_export_project_bundle_start_request", Internal, ProjectWrite, Read, true, false, 1048576, None),
+    operation!("build_temporal_generate_media_failure_actions", Internal, ProjectWrite, Read, true, false, 1048576, None),
+    operation!("build_temporal_generate_media_start_request", Internal, ProjectWrite, Read, true, false, 1048576, None),
+    operation!("build_temporal_job_summary", Internal, ProjectRead, Read, true, false, 1048576, None),
+    operation!("build_temporal_start_result_action", Internal, ProjectWrite, Read, true, false, 1048576, None),
+    operation!("build_temporal_transcribe_media_start_request", Internal, ProjectWrite, Read, true, false, 1048576, None),
+    operation!("cache_timeline_filmstrip_in_split_project_folder", Remote, ProjectWrite, JobMutation, true, true, 1048576, None),
+    operation!("call_codex_local_tool", Internal, HostAdmin, ExternalMutation, false, false, 1048576, None),
+    operation!("cancel_codex_conversation_edit_for_project", Remote, ProjectWrite, JobMutation, true, false, 65536, None),
+    operation!("cancel_codex_video_edit_for_project", Remote, ProjectWrite, JobMutation, true, false, 65536, None),
+    operation!("cancel_generate_media_in_process", Remote, ProjectWrite, JobMutation, true, false, 65536, None),
+    operation!("cancel_generate_media_provider_request_in_split_project_folder", Remote, ProjectWrite, JobMutation, true, true, 65536, None),
+    operation!("cancel_model_download", Remote, HostAdmin, JobMutation, false, false, 65536, None),
+    operation!("cancel_render_job_in_split_project_folder", Remote, ProjectWrite, JobMutation, true, true, 65536, None),
+    operation!("cancel_settings_operation", Remote, HostAdmin, JobMutation, false, false, 65536, None),
+    operation!("cancel_visual_frame_cache_job", Remote, ProjectWrite, JobMutation, true, false, 65536, None),
+    operation!("caption_visual_frame_cache_in_split_project_folder", Remote, ProjectWrite, JobMutation, true, true, 1048576, None),
+    operation!("capture_canonical_preview_frame_in_split_project_folder", Remote, ProjectRead, Read, true, false, 1048576, None),
+    operation!("check_render_system", Remote, HostAdmin, ExternalMutation, false, false, 65536, None),
+    operation!("complete_mock_generated_asset_in_split_project_folder", Internal, ProjectWrite, ProjectMutation, true, true, 1048576, None),
+    operation!("create_empty_project", Internal, ProjectWrite, ProjectMutation, true, true, 1048576, None),
+    operation!("create_matte_in_split_project_folder", Remote, ProjectWrite, ProjectMutation, true, true, 1048576, None),
+    operation!("delete_provider_credential", Remote, HostAdmin, HostMutation, false, false, 65536, None),
+    operation!("download_production_speech_models", Remote, HostAdmin, JobMutation, false, false, 65536, None),
+    operation!("download_transcription_model", Remote, HostAdmin, JobMutation, false, false, 65536, None),
+    operation!("export_nle_xml_to_split_project_folder", Remote, ProjectWrite, JobMutation, true, true, 1048576, None),
+    operation!("export_palmier_project_package_to_split_project_folder", Remote, ProjectWrite, JobMutation, true, true, 1048576, None),
+    operation!("extract_visual_frame_cache_in_split_project_folder", Remote, ProjectWrite, JobMutation, true, true, 1048576, None),
+    operation!("generate_one_click_edit_for_project", Remote, ProjectWrite, ExternalMutation, true, true, 1048576, None),
+    operation!("generate_spoken_semantic_multi_source_edit_for_project", Remote, ProjectWrite, ExternalMutation, true, true, 1048576, None),
+    operation!("get_active_transcription_model", Remote, Session, Read, false, false, 65536, None),
+    operation!("get_agent_settings_health", Remote, HostAdmin, Read, false, false, 65536, None),
+    operation!("get_app_preferences", Remote, Session, Read, false, false, 65536, None),
+    operation!("get_export_profile_availability_report", Remote, Session, Read, false, false, 65536, None),
+    operation!("get_notification_capability", DesktopOnly, Session, Read, false, false, 65536, Some("Browser Notification API")),
+    operation!("get_remote_access_status", Remote, HostAdmin, Read, false, false, 65536, None),
+    operation!("get_platform_info", Remote, Session, Read, false, false, 65536, None),
+    operation!("get_production_speech_model_status", Remote, Session, Read, false, false, 65536, None),
+    operation!("get_project_speaker_registry", Remote, ProjectRead, Read, true, false, 65536, None),
+    operation!("get_provider_account_status", Remote, HostAdmin, Read, false, false, 65536, None),
+    operation!("get_provider_health", Remote, HostAdmin, Read, false, false, 65536, None),
+    operation!("get_render_system_health", Remote, Session, Read, false, false, 65536, None),
+    operation!("get_settings_acceptance_context", Internal, HostAdmin, Read, false, false, 65536, None),
+    operation!("get_settings_health_snapshot", Remote, HostAdmin, Read, false, false, 65536, None),
+    operation!("get_skills_settings_health", Remote, HostAdmin, Read, false, false, 65536, None),
+    operation!("get_storage_health", Remote, HostAdmin, Read, false, false, 65536, None),
+    operation!("get_system_health_snapshot", Remote, HostAdmin, Read, false, false, 65536, None),
+    operation!("get_temporal_worker_environment_report", Remote, HostAdmin, Read, false, false, 65536, None),
+    operation!("get_transcription_runtime_status", Remote, Session, Read, false, false, 65536, None),
+    operation!("get_update_health", Remote, HostAdmin, Read, false, false, 65536, None),
+    operation!("import_media_to_project", Remote, ProjectWrite, ProjectMutation, true, true, 33554432, None),
+    operation!("import_transcription_model", DesktopOnly, HostAdmin, HostMutation, false, false, 65536, Some("Authenticated browser upload")),
+    operation!("list_codex_local_tools", Internal, HostAdmin, Read, false, false, 65536, None),
+    operation!("list_generation_model_catalog", Remote, Session, Read, false, false, 65536, None),
+    operation!("list_provider_credential_statuses", Remote, HostAdmin, Read, false, false, 65536, None),
+    operation!("list_settings_operations", Remote, HostAdmin, Read, false, false, 65536, None),
+    operation!("list_shader_background_templates", Remote, Session, Read, false, false, 65536, None),
+    operation!("list_transcription_models", Remote, Session, Read, false, false, 65536, None),
+    operation!("list_visual_effect_catalog", Remote, Session, Read, false, false, 65536, None),
+    operation!("load_agent_sessions_from_split_project_folder", Remote, ProjectRead, Read, true, false, 65536, None),
+    operation!("load_app_server_conversation_history_from_split_project_folder", Remote, ProjectRead, Read, true, false, 65536, None),
+    operation!("load_job_progress_from_split_project_folder", Remote, ProjectRead, Read, true, false, 65536, None),
+    operation!("load_project_from_folder", Internal, ProjectRead, Read, true, false, 65536, None),
+    operation!("load_render_pipeline_report_from_split_project_folder", Remote, ProjectRead, Read, true, false, 65536, None),
+    operation!("load_settings_acceptance_project", Internal, HostAdmin, Read, false, false, 65536, None),
+    operation!("load_split_project_from_folder", Remote, ProjectRead, Read, true, false, 65536, None),
+    operation!("materialize_sample_project_media", Internal, HostAdmin, HostMutation, false, false, 1048576, None),
+    operation!("mcp_client_configuration", Remote, HostAdmin, Read, false, false, 65536, None),
+    operation!("migrate_single_file_project_to_split", Internal, ProjectWrite, ProjectMutation, true, true, 33554432, None),
+    operation!("prepare_project_preview", Remote, ProjectRead, Read, true, false, 1048576, None),
+    operation!("preview_storage_cleanup", Remote, HostAdmin, Read, false, false, 65536, None),
+    operation!("rebuild_project_search_index", Remote, ProjectWrite, JobMutation, true, true, 1048576, None),
+    operation!("recolor_project_speaker", Remote, ProjectWrite, ProjectMutation, true, true, 1048576, None),
+    operation!("reconcile_temporal_jobs_in_split_project_folder", Remote, ProjectWrite, JobMutation, true, true, 1048576, None),
+    operation!("refresh_provider_health", Remote, HostAdmin, ExternalMutation, false, false, 65536, None),
+    operation!("refresh_storage_inventory", Remote, HostAdmin, ExternalMutation, false, false, 65536, None),
+    operation!("refresh_system_health_section", Remote, HostAdmin, ExternalMutation, false, false, 65536, None),
+    operation!("remove_production_speech_models", Remote, HostAdmin, HostMutation, false, false, 65536, None),
+    operation!("remove_transcription_model", Remote, HostAdmin, HostMutation, false, false, 65536, None),
+    operation!("rename_project_speaker", Remote, ProjectWrite, ProjectMutation, true, true, 1048576, None),
+    operation!("render_media_to_split_project_folder", Remote, ProjectWrite, JobMutation, true, true, 1048576, None),
+    operation!("render_webm_to_split_project_folder", Remote, ProjectWrite, JobMutation, true, true, 1048576, None),
+    operation!("repair_bundled_skills", Remote, HostAdmin, HostMutation, false, false, 65536, None),
+    operation!("request_notification_permission", DesktopOnly, Session, HostMutation, false, false, 65536, Some("Browser Notification API")),
+    operation!("retry_generated_asset_output_download_in_split_project_folder", Remote, ProjectWrite, JobMutation, true, true, 1048576, None),
+    operation!("reveal_export_artifact_in_split_project_folder", DesktopOnly, ProjectRead, Read, true, false, 65536, Some("Authenticated browser download")),
+    operation!("reveal_storage_inventory_item", DesktopOnly, HostAdmin, Read, false, false, 65536, Some("Artifact details and download")),
+    operation!("run_agent_component_self_test", Remote, HostAdmin, ExternalMutation, false, false, 65536, None),
+    operation!("run_generate_media_in_process", Remote, ProjectWrite, ExternalMutation, true, true, 1048576, None),
+    operation!("run_preview_render_comparison_request_in_split_project_folder", Remote, ProjectWrite, JobMutation, true, true, 1048576, None),
+    operation!("run_storage_cleanup", Remote, HostAdmin, HostMutation, false, false, 1048576, None),
+    operation!("save_project_to_folder", Internal, ProjectWrite, ProjectMutation, true, true, 33554432, None),
+    operation!("save_split_project_to_folder", Remote, ProjectWrite, ProjectMutation, true, true, 33554432, None),
+    operation!("search_project_media", Remote, ProjectRead, Read, true, false, 1048576, None),
+    operation!("set_active_transcription_model", Remote, HostAdmin, HostMutation, false, false, 65536, None),
+    operation!("set_provider_credential", Remote, HostAdmin, HostMutation, false, false, 1048576, None),
+    operation!("set_remote_access_running", DesktopOnly, HostAdmin, HostMutation, false, false, 65536, Some("Manage the host service on the host machine")),
+    operation!("start_codex_conversation_edit_for_project", Remote, ProjectWrite, ExternalMutation, true, true, 1048576, None),
+    operation!("start_codex_video_edit_for_project", Remote, ProjectWrite, ExternalMutation, true, true, 1048576, None),
+    operation!("start_temporal_workflow", Internal, ProjectWrite, JobMutation, true, true, 1048576, None),
+    operation!("sync_native_menu_state", DesktopOnly, Session, HostMutation, false, false, 65536, Some("Browser shortcuts and controls")),
+    operation!("undo_latest_codex_conversation_edit", Remote, ProjectWrite, ProjectMutation, true, true, 65536, None),
+    operation!("update_app_preferences", Remote, HostAdmin, HostMutation, false, false, 1048576, None),
+    operation!("update_project_settings_in_split_project_folder", Remote, ProjectWrite, ProjectMutation, true, true, 1048576, None),
+    operation!("validate_split_project_folder", Remote, ProjectRead, Read, true, false, 65536, None),
+    operation!("verify_production_speech_models", Remote, HostAdmin, ExternalMutation, false, false, 65536, None),
+    operation!("verify_transcription_model", Remote, HostAdmin, ExternalMutation, false, false, 65536, None),
+    operation!("write_settings_acceptance_checkpoint", Internal, HostAdmin, HostMutation, false, false, 1048576, None),
+    operation!("write_settings_acceptance_failure", Internal, HostAdmin, HostMutation, false, false, 1048576, None),
+    operation!("write_settings_acceptance_progress", Internal, HostAdmin, HostMutation, false, false, 1048576, None),
+];
+
+pub fn find_operation(name: &str) -> Option<&'static OperationDescriptor> {
+    OPERATION_INVENTORY
+        .iter()
+        .find(|operation| operation.name == name)
+}
