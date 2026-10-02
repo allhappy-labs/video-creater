@@ -37,6 +37,15 @@ export async function uploadVideoAndApplyAgent(page: Page) {
   if (await closeAi.isVisible()) await closeAi.click();
 }
 
+/** A reload can interrupt an acknowledged-on-host operation; resume only after a safe read. */
+export async function reconcileUnconfirmedEdit(page: Page) {
+  const notice = page.getByRole("alert", { name: "Unconfirmed edit" });
+  if (await notice.isVisible()) {
+    await notice.getByRole("button", { name: "Refresh project", exact: true }).click();
+    await expect(notice).toHaveCount(0);
+  }
+}
+
 export async function exportAndDownload(
   page: Page,
   name: string,
@@ -61,6 +70,8 @@ export async function exportAndDownload(
       .first()
       .getByRole("button", { name: "Open project" })
       .click();
+    await expect(page.getByRole("main", { name: "Video editor workspace" })).toBeVisible();
+    await reconcileUnconfirmedEdit(page);
   }
   await expect(backgroundTasks).toContainText("Export complete", { timeout: 60_000 });
 

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { aspectRatioLabel } from "@/lib/media/names";
 import { previewUrlsForTimelineSources } from "@/lib/media/preview-source";
+import { useMediaReadiness } from "@/lib/media/use-media-readiness";
 import { projectNeedsCanonicalPreview } from "@/lib/project";
 import { previewOutputSize } from "@/lib/preview/canvas-geometry";
 import { frameStepSeconds } from "@/lib/preview/playback-clock";
@@ -34,6 +35,7 @@ export function TimelinePreview({
 }: { readonly onOpenSource: (itemId: string, mediaId: string) => void } & PreviewFullscreenControls) {
   const project = useEditorStore((state) => state.project);
   const projectDir = useEditorStore((state) => state.projectDir);
+  const mediaReadiness = useMediaReadiness(projectDir);
   const playheadSeconds = useEditorStore((state) => state.playheadSeconds);
   const playing = useEditorStore((state) => state.playing);
   const preparation = useEditorStore((state) => state.canonicalPreparation);
@@ -51,11 +53,11 @@ export function TimelinePreview({
   const stepFrame = (direction: -1 | 1) => seek(frameStepSeconds(clampedSeconds, fps, direction));
   const onKeyDown = usePreviewKeys({ canPlay: transportReady, canStep: transportReady, onTogglePlay: togglePlaying, onStep: stepFrame });
 
-  const mediaPreviewUrls = useMemo(() => previewUrlsForTimelineSources(projectDir, media, generatedAssets), [generatedAssets, media, projectDir]);
+  const mediaPreviewUrls = useMemo(() => previewUrlsForTimelineSources(projectDir, media, generatedAssets), [generatedAssets, media, projectDir, mediaReadiness.version]);
   const needsCanonical = useMemo(() => projectNeedsCanonicalPreview(project), [project]);
   const canonical = canonicalStateForProject(preparation, project, needsCanonical);
   const prepared = preparedResultForProject(preparation, project);
-  const sequences = useMemo(() => (prepared ? canonicalFrameSequences(prepared, projectDir) : []), [prepared, projectDir]);
+  const sequences = useMemo(() => (prepared ? canonicalFrameSequences(prepared, projectDir) : []), [prepared, projectDir, mediaReadiness.version]);
 
   // A dragged Properties value shows live without touching the project.
   const previewTimeline = useMemo(() => timelineWithPropertyPreview(timeline, propertyPreview), [propertyPreview, timeline]);

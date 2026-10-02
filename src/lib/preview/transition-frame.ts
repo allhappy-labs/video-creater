@@ -110,9 +110,10 @@ function planTransition(
   track: TimelineTrack,
   transition: TimelineTransition,
   frameSeconds: number,
+  itemsById: ReadonlyMap<string, TimelineItem>,
 ): PlannedPreviewTransition | null {
-  const left = track.items.find((item) => item.id === transition.leftItemId);
-  const right = track.items.find((item) => item.id === transition.rightItemId);
+  const left = itemsById.get(transition.leftItemId);
+  const right = itemsById.get(transition.rightItemId);
   if (!left || !right || left.id === right.id || transitionPairError(left, right, frameSeconds)) return null;
   const audio = left.kind === "audio_clip";
   if (audio ? track.kind !== "audio" : track.kind !== "video" || !visualItemKinds.has(left.kind)) return null;
@@ -143,9 +144,12 @@ export function planTrackTransitions(
 ): ReadonlyMap<string, PreviewItemTransitions> {
   const byItem = new Map<string, PreviewItemTransitions>();
   if (track.enabled === false || !track.transitions?.length) return byItem;
+  const itemsById = new Map<string, TimelineItem>();
+  // Preserve find()'s first-match behavior even for malformed duplicate IDs.
+  for (const item of track.items) if (!itemsById.has(item.id)) itemsById.set(item.id, item);
   for (const transition of track.transitions) {
     if (droppedTransitionIds.has(transition.id)) continue;
-    const planned = planTransition(sources, track, transition, frameSeconds);
+    const planned = planTransition(sources, track, transition, frameSeconds, itemsById);
     if (!planned) continue;
     const empty: PreviewItemTransitions = { head: null, tail: null };
     if (byItem.get(planned.leftItemId)?.tail || byItem.get(planned.rightItemId)?.head) continue;
@@ -285,12 +289,13 @@ export function carryTransitionsThroughExpansion(
   namespace: string,
   playbackSpeed: number,
 ): TimelineTransition[] {
+  if (!track.transitions?.length) return [];
+  const presentIds = new Set(expandedItems.map((item) => item.id));
   const expandedId = (id: string) => (namespace === "root" ? id : `${namespace}:${id}`);
   return (track.transitions ?? []).flatMap((transition) => {
     const leftItemId = expandedId(transition.leftItemId);
     const rightItemId = expandedId(transition.rightItemId);
-    const present = (id: string) => expandedItems.some((item) => item.id === id);
-    if (!present(leftItemId) || !present(rightItemId)) return [];
+    if (!presentIds.has(leftItemId) || !presentIds.has(rightItemId)) return [];
     return [
       {
         id: expandedId(transition.id),

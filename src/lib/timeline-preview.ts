@@ -13,7 +13,7 @@ import {
   type TimelinePreviewLayerTransition,
   type TimelinePreviewTransition,
 } from "./preview/transition-frame";
-import { flattenGroupsAt, transitionEligibility } from "./preview/transition-eligibility";
+import { planPreviewTransitionEligibility } from "./preview/transition-eligibility";
 import { isReversedItem, sourceSecondsAt } from "./timeline-ops/reverse";
 
 type TimelinePreviewStatus =
@@ -158,7 +158,7 @@ export interface TimelinePreviewLayerGeometry {
 
 const PREVIEW_OPACITY_SAMPLE_FPS = 120;
 
-export function buildTimelinePreviewFrame(input: {
+interface TimelinePreviewInput {
   timeline: Timeline;
   timelines?: Array<{ id: string; timeline: Timeline }>;
   media: MediaAsset[];
@@ -166,7 +166,22 @@ export function buildTimelinePreviewFrame(input: {
   playheadSeconds: number;
   /** The project frame rate, for transition adjacency (24 when omitted or invalid). */
   fps?: number;
-}): TimelinePreviewFrame {
+}
+
+type PreviewStructuralPlan = ReturnType<typeof createPreviewStructuralPlan>;
+interface PreviewStructuralCacheEntry {
+  input: TimelinePreviewInput;
+  signature: string;
+  plan: PreviewStructuralPlan;
+}
+
+// The live and prepared timeline may alternate. Strong retention is bounded to two
+// modest plans, including their source inputs; a project history cannot grow this cache.
+const structuralPlans: PreviewStructuralCacheEntry[] = [];
+const MAX_STRUCTURAL_SIGNATURE_CHARACTERS = 2 * 1024 * 1024;
+const MAX_STRUCTURAL_PLAN_UNITS = 100_000;
+
+function createPreviewStructuralPlan(input: TimelinePreviewInput, frameSeconds: number) {
   const timelinesById = new Map(
     (input.timelines ?? []).map((entry) => [entry.id, entry.timeline]),
   );
@@ -175,16 +190,73 @@ export function buildTimelinePreviewFrame(input: {
   const generatedAssetsById = new Map(
     (input.generatedAssets ?? []).map((asset) => [asset.id, asset]),
   );
+  const transitionSources = { media: input.media, generatedAssets: input.generatedAssets ?? [] };
+  const { eligibility, flattenedGroups } = planPreviewTransitionEligibility(timeline, transitionSources, frameSeconds);
+  const trackTransitions = timeline.tracks.map((track) => planTrackTransitions(track, transitionSources, frameSeconds, eligibility.droppedTransitionIds));
+  return { timeline, mediaById, generatedAssetsById, eligibility, flattenedGroups, trackTransitions };
+}
+
+function structuralPlanUnits(plan: PreviewStructuralPlan): number {
+  let units = plan.mediaById.size + plan.generatedAssetsById.size + plan.flattenedGroups.length;
+  for (const track of plan.timeline.tracks) {
+    units += track.items.length + (track.transitions?.length ?? 0);
+    for (const item of track.items) {
+      const keyframes = item.properties.keyframes;
+      if (keyframes && typeof keyframes === "object" && !Array.isArray(keyframes)) {
+        for (const values of Object.values(keyframes)) if (Array.isArray(values)) units += values.length;
+      }
+      if (units > MAX_STRUCTURAL_PLAN_UNITS) return units;
+    }
+  }
+  return units;
+}
+
+function previewStructuralPlan(input: TimelinePreviewInput, frameSeconds: number): PreviewStructuralPlan {
+  const index = structuralPlans.findIndex((entry) => entry.input.timeline === input.timeline && entry.input.timelines === input.timelines && entry.input.media === input.media && entry.input.generatedAssets === input.generatedAssets);
+  const previous = index >= 0 ? structuralPlans.splice(index, 1)[0] : undefined;
+  // Simple timelines were already cheap. Avoid signature serialization when there
+  // is no nested, transition or preparation work to amortize across frames.
+  const needsReuse = input.timeline.tracks.some((track) => track.transitions?.length || track.items.some((item) => item.source.type === "timeline" || item.properties.effects !== undefined || item.properties.colorGrade !== undefined || item.properties.blendMode !== undefined));
+  if (!needsReuse) return createPreviewStructuralPlan(input, frameSeconds);
+  // Callers normally replace canonical snapshots, but public frame callers also use
+  // mutable objects. A content signature detects in-place edits, including nested
+  // properties/media/output readiness, rather than silently trusting object identity.
+  let signature: string;
+  try {
+    let ordinal = 0;
+    const specialNumbers: string[] = [];
+    const serialized = JSON.stringify([input.timeline, input.timelines, input.media, input.generatedAssets, frameSeconds], (_key, value: unknown) => {
+      // JSON normalizes -0/nonfinite values. Preserve those distinctions for
+      // mutable callers without substituting values the evaluator will read.
+      if (typeof value === "number" && (!Number.isFinite(value) || Object.is(value, -0))) specialNumbers.push(`${ordinal}:${Object.is(value, -0) ? "-0" : String(value)}`);
+      ordinal += 1;
+      return value;
+    });
+    signature = `${serialized}\0${specialNumbers.join(",")}`;
+  } catch {
+    // Non-JSON extra properties were harmless to the frame evaluator before
+    // reuse was introduced; evaluate them freshly instead of rejecting them.
+    return createPreviewStructuralPlan(input, frameSeconds);
+  }
+  if (previous?.signature === signature) { structuralPlans.push(previous); return previous.plan; }
+  const plan = createPreviewStructuralPlan(input, frameSeconds);
+  if (signature.length <= MAX_STRUCTURAL_SIGNATURE_CHARACTERS && structuralPlanUnits(plan) <= MAX_STRUCTURAL_PLAN_UNITS) {
+    structuralPlans.push({ input: { ...input, playheadSeconds: 0 }, signature, plan });
+    if (structuralPlans.length > 2) structuralPlans.shift();
+  }
+  return plan;
+}
+
+export function buildTimelinePreviewFrame(input: TimelinePreviewInput): TimelinePreviewFrame {
+  const frameSeconds = input.fps !== undefined && Number.isFinite(input.fps) && input.fps > 0 ? 1 / input.fps : 1 / 24;
+  const { timeline, mediaById, generatedAssetsById, eligibility, flattenedGroups: plannedGroups, trackTransitions: plannedTrackTransitions } = previewStructuralPlan(input, frameSeconds);
   const layers: TimelinePreviewLayer[] = [];
   const audioLayers: TimelinePreviewAudioLayer[] = [];
   const overlayLayers: TimelinePreviewOverlayLayer[] = [];
   const issues: string[] = [];
   const transitions: TimelinePreviewTransition[] = [];
-  const transitionSources = { media: input.media, generatedAssets: input.generatedAssets ?? [] };
-  const frameSeconds = input.fps !== undefined && Number.isFinite(input.fps) && input.fps > 0 ? 1 / input.fps : 1 / 24;
   // Skip transitions render preparation removes, and mark the ones flattened composites bake.
-  const eligibility = transitionEligibility(timeline, transitionSources, frameSeconds);
-  const flattenedGroups = flattenGroupsAt(timeline, transitionSources, frameSeconds, input.playheadSeconds);
+  const flattenedGroups = plannedGroups.filter((group) => input.playheadSeconds >= group.start && input.playheadSeconds < group.end);
   const flattenedCoverItemIds: string[] = [];
   let hasMissingMedia = false;
   let hasUnsupportedSource = false;
@@ -194,7 +266,7 @@ export function buildTimelinePreviewFrame(input: {
       continue;
     }
     const coveredByFlattenedGroup = track.kind === "video" && flattenedGroups.some((group) => trackIndex <= group.topTrackIndex);
-    const trackTransitions = planTrackTransitions(track, transitionSources, frameSeconds, eligibility.droppedTransitionIds);
+    const trackTransitions = plannedTrackTransitions[trackIndex]!;
     const activeTransitions = activeTrackTransitions(trackTransitions, input.playheadSeconds, eligibility.flattenedTransitionIds);
     const trackLayerStart = layers.length;
 
@@ -944,12 +1016,24 @@ function composeNestedMotionWrappers(
   const keyframes = properties.keyframes && typeof properties.keyframes === "object" && !Array.isArray(properties.keyframes)
     ? { ...properties.keyframes as Record<string, unknown> } : {};
   const motionProperties = ["positionX", "positionY", "rotationDegrees", "scaleX", "scaleY", "cropTop", "cropRight", "cropBottom", "cropLeft"] as const;
-  const times: number[] = [];
-  for (let frame = Math.ceil(absoluteStart * PREVIEW_OPACITY_SAMPLE_FPS); frame <= Math.floor(absoluteEnd * PREVIEW_OPACITY_SAMPLE_FPS); frame += 1) times.push(frame / PREVIEW_OPACITY_SAMPLE_FPS);
+  const firstFrame = Math.ceil(absoluteStart * PREVIEW_OPACITY_SAMPLE_FPS);
+  const lastFrame = Math.floor(absoluteEnd * PREVIEW_OPACITY_SAMPLE_FPS);
+  let animatedTimes: number[] | undefined;
   for (const property of motionProperties) {
     const childFallback = property === "scaleX" || property === "scaleY"
       ? numberProperty(item, property) ?? numberProperty(item, "scale") ?? 1
       : numberProperty(item, property) ?? 0;
+    const hasAnimation = [item, ...wrappers].some((candidate) => {
+      const values = candidate.properties.keyframes;
+      return values && typeof values === "object" && !Array.isArray(values) && Array.isArray((values as Record<string, unknown>)[property]) && ((values as Record<string, unknown>)[property] as unknown[]).length > 0;
+    });
+    // Static channels previously repeated the same rounded value 120 times/second.
+    // One identical sample preserves clamping/rounding without those allocations.
+    if (hasAnimation && !animatedTimes) {
+      animatedTimes = [];
+      for (let frame = firstFrame; frame <= lastFrame; frame += 1) animatedTimes.push(frame / PREVIEW_OPACITY_SAMPLE_FPS);
+    }
+    const times = hasAnimation ? animatedTimes! : firstFrame <= lastFrame ? [firstFrame / PREVIEW_OPACITY_SAMPLE_FPS] : [];
     keyframes[property] = times.map((absolute) => {
       const local = absolute - absoluteStart;
       let value = keyframedNumberProperty(item, property, local, childFallback);

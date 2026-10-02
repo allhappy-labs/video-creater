@@ -111,9 +111,25 @@ impl ProjectCatalog {
     }
 
     pub fn create_path(&self) -> Result<PathBuf, String> {
-        let path = self
-            .primary_root()
-            .join(format!("{}.palmier", uuid::Uuid::new_v4().simple()));
+        self.create_path_with_nonce(&uuid::Uuid::new_v4().simple().to_string())
+    }
+
+    pub(super) fn reserved_creation_path(&self, nonce: &str) -> Result<PathBuf, String> {
+        if nonce.len() != 32 || !nonce.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err("invalid creation identity".into());
+        }
+        let path = self.primary_root().join(format!("{nonce}.palmier"));
+        if path.exists() {
+            let canonical = fs::canonicalize(&path).map_err(|_| "project could not be resolved")?;
+            if canonical != path {
+                return Err("reserved project folder was replaced".into());
+            }
+        }
+        Ok(path)
+    }
+
+    pub(super) fn create_path_with_nonce(&self, nonce: &str) -> Result<PathBuf, String> {
+        let path = self.reserved_creation_path(nonce)?;
         fs::create_dir(&path).map_err(|_| "project folder could not be created")?;
         Ok(path)
     }

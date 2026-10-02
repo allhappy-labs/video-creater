@@ -1,5 +1,6 @@
 export type RemoteProjectAccess =
   | { readonly mode: "unknown" }
+  | { readonly mode: "unavailable"; readonly message: string }
   | { readonly mode: "editing"; readonly expiresAt: number }
   | { readonly mode: "readOnly"; readonly editorDisplayName: string };
 
@@ -15,6 +16,7 @@ const publicAccessByProject = new Map<string, RemoteProjectAccess>();
 const revisionByProject = new Map<string, number>();
 const listeners = new Set<() => void>();
 let takeoverHandler: ((projectId: string) => Promise<void>) | null = null;
+let refreshHandler: ((projectId: string) => Promise<void>) | null = null;
 
 export function setRemoteProjectAccess(projectId: string, access: StoredAccess): void {
   accessByProject.set(projectId, access);
@@ -34,7 +36,7 @@ export function remoteEditorLeaseToken(projectId: string): string | undefined {
 }
 
 export function setRemoteProjectRevision(projectId: string, revision: number): void {
-  if (Number.isSafeInteger(revision) && revision >= 0) revisionByProject.set(projectId, revision);
+  if (Number.isSafeInteger(revision) && revision >= (revisionByProject.get(projectId) ?? 0)) revisionByProject.set(projectId, revision);
 }
 
 export function remoteProjectRevision(projectId: string): number | undefined {
@@ -50,15 +52,27 @@ export function setRemoteTakeoverHandler(handler: ((projectId: string) => Promis
   takeoverHandler = handler;
 }
 
+export function setRemoteLeaseRefreshHandler(handler: (projectId: string) => Promise<void>): void {
+  refreshHandler = handler;
+}
+
+export async function refreshRemoteProjectAccess(projectId: string): Promise<void> {
+  if (!refreshHandler) throw new Error("The remote editor is not connected.");
+  await refreshHandler(projectId);
+}
+
 export async function takeOverRemoteProject(projectId: string): Promise<void> {
   if (!takeoverHandler) throw new Error("The remote editor is not connected.");
   await takeoverHandler(projectId);
 }
 
-export function clearRemoteProjectAccessForTests(): void {
+export function resetRemoteProjectAccess(): void {
   accessByProject.clear();
   publicAccessByProject.clear();
   revisionByProject.clear();
   takeoverHandler = null;
+  refreshHandler = null;
   for (const listener of listeners) listener();
 }
+
+export function clearRemoteProjectAccessForTests(): void { resetRemoteProjectAccess(); }

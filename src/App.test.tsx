@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appSettingsStorageKey } from "@/lib/app-settings";
 import type { VideoProject } from "@/lib/project";
 import { FixtureTransport } from "@/lib/runtime/adapters/fixture-transport";
-import { BackendUnavailableError } from "@/lib/runtime/backend-transport";
+import { RemoteTransport } from "@/lib/runtime/adapters/remote-transport";
+import { setRemoteOutcomeReconciler } from "@/lib/runtime/adapters/remote-outcome-state";
+import { BackendUnavailableError, RemoteOperationError } from "@/lib/runtime/backend-transport";
 import { createRuntimeDescriptor } from "@/lib/runtime/runtime-descriptor";
 import type { AppSettingsTarget } from "@/lib/settings/target";
 import App, { createEmptySplitProject } from "./App";
@@ -411,6 +413,8 @@ describe("App transcription model bridge handling", () => {
       },
     );
     window.localStorage.clear();
+    window.sessionStorage.clear();
+    setRemoteOutcomeReconciler(async () => null);
     consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
@@ -579,6 +583,60 @@ describe("App transcription model bridge handling", () => {
       name: "Recent project Remote race project",
     })).toHaveLength(1);
     expect(window.localStorage.getItem("video-creater.recentProjects")).toBeNull();
+  });
+
+  it("keeps unconfirmed remote creation disabled across reconnect and lets the user inspect the catalog", async () => {
+    let listed = false;
+    const createdProject = createEmptySplitProject("Accepted remote draft", appPreferences().newProjectDefaults);
+    invokeMock.mockImplementation((command: string) => {
+      if (command === "remote_list_projects") return Promise.resolve(listed ? [{ projectId: "accepted-id", name: createdProject.name, updatedAtMs: Date.now() }] : []);
+      if (command === "remote_create_project") return Promise.reject(new RemoteOperationError(command, "outcome_unknown", "Project creation may have completed.", "lost-create", "rpc", "unknown"));
+      if (command === "load_split_project_from_folder") return Promise.resolve(createdProject);
+      return Promise.resolve(settingsCommandResult(command));
+    });
+    const runtime = (sessionId: string) => createRuntimeDescriptor("browser", { status: "connected", transport: new FixtureTransport(new Map()) }, {
+      kind: "connected", sessionId, displayName: "Browser", hostLabel: "Studio host", csrfToken: "test-csrf",
+    });
+    const rendered = render(<App runtime={runtime("session-one")} />);
+    await screen.findByRole("main", { name: "Project home" });
+    fireEvent.click(screen.getByRole("button", { name: "New project" }));
+    fireEvent.change(screen.getByLabelText("Project name"), { target: { value: createdProject.name } });
+    fireEvent.click(screen.getByRole("button", { name: "Create project" }));
+    expect(await screen.findByText("Project creation unconfirmed")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Create project" })).toBeDisabled();
+    rendered.rerender(<App runtime={createRuntimeDescriptor("browser", { status: "disconnected" })} />);
+    rendered.rerender(<App runtime={runtime("session-two")} />);
+    await screen.findByRole("main", { name: "Project home" });
+    expect(screen.getByRole("button", { name: "New project" })).toBeDisabled();
+    listed = true;
+    fireEvent.click(screen.getByRole("button", { name: "Refresh host projects" }));
+    const accepted = await screen.findByRole("article", { name: `Recent project ${createdProject.name}` });
+    fireEvent.click(within(accepted).getByRole("button", { name: "Open project" }));
+    expect(await screen.findByRole("region", { name: "Mock editor workspace" })).toBeVisible();
+    expect(invokeMock.mock.calls.filter(([command]) => command === "remote_create_project")).toHaveLength(1);
+  });
+
+  it("disables project creation after reloading while a host creation response is still pending", async () => {
+    let finish!: (response: Response) => void;
+    let requestId = "";
+    const first = new RemoteTransport({ csrfToken: "private-csrf", hostLabel: "Studio host", fetcher: async (_url, init) => {
+      requestId = JSON.parse(String(init?.body)).requestId;
+      return new Promise<Response>((resolve) => { finish = resolve; });
+    } });
+    const creation = first.request("remote_create_project", { project: { name: "Private draft" } });
+    await vi.waitFor(() => expect(requestId).not.toBe(""));
+    const restored = new RemoteTransport({ csrfToken: "new-csrf", hostLabel: "Studio host", fetcher: async (_url, init) => new Response(JSON.stringify({ requestId: JSON.parse(String(init?.body)).requestId, ok: true, result: [] })) });
+    invokeMock.mockImplementation((command: string) => command === "remote_list_projects" ? Promise.resolve([]) : Promise.resolve(settingsCommandResult(command)));
+    const runtime = createRuntimeDescriptor("browser", { status: "connected", transport: restored }, {
+      kind: "connected", sessionId: "new-session", displayName: "Browser", hostLabel: "Studio host", csrfToken: "new-csrf",
+    });
+    render(<App runtime={runtime} />);
+    await screen.findByRole("main", { name: "Project home" });
+    expect(screen.getByRole("button", { name: "New project" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Refresh host projects" })).toBeEnabled();
+    finish(new Response(JSON.stringify({ requestId, ok: true, result: { catalogProjectId: "accepted", project: {} } })));
+    await creation;
+    expect(screen.getByRole("button", { name: "New project" })).toBeDisabled();
   });
 
   it("keeps readiness at the defaults quietly when the backend is unavailable", async () => {

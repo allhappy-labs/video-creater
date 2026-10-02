@@ -8,6 +8,10 @@ import {
 } from "./remote-session";
 
 describe("remote session", () => {
+  it("negotiates durable outcome recovery only when the host advertises protocol one", async () => {
+    const state = await discoverRemoteSession(async () => new Response(JSON.stringify({ authenticated: true, sessionId: "s", csrfToken: "c", protocolVersion: 1, outcomeProtocol: 1 })));
+    expect(state).toMatchObject({ kind: "connected", outcomeProtocol: 1 });
+  });
   it("discovers authenticated compatible sessions from the same origin", async () => {
     const state = await discoverRemoteSession(async () => new Response(JSON.stringify({
       authenticated: true,

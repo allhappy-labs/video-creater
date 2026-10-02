@@ -335,7 +335,8 @@ for (const viewport of acceptanceViewports) {
       await expect(dialog).toHaveCount(0);
 
       const indicator = page.getByRole("button", { name: "Background tasks" });
-      await expect(indicator).toHaveAccessibleDescription("Exporting…");
+      // Durable admission can acknowledge the queued job before the worker starts.
+      await expect(indicator).toHaveAccessibleDescription(/^(Export queued|Exporting…)$/);
       const toast = page.getByRole("region", { name: /Notification/ }).getByRole("listitem").filter({ hasText: "Exported " });
       await expect(toast).toBeVisible({ timeout: 15_000 });
       await expect(indicator).toHaveAccessibleDescription("Export complete");

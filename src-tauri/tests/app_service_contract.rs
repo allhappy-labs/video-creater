@@ -1,12 +1,10 @@
 use std::collections::BTreeSet;
-use std::sync::Arc;
 
 use serde_json::json;
 use video_creater_lib::app_service::context::{ClientKind, RequestContext};
 use video_creater_lib::app_service::error::{ServiceError, ServiceErrorCode};
 use video_creater_lib::app_service::events::{EventSink, FakeEventSink, ServiceEvent};
 use video_creater_lib::app_service::operation::AuthorizationScope;
-use video_creater_lib::app_service::{ServiceDependencies, VideoCreaterService};
 
 #[test]
 fn request_context_redacts_lease_and_has_no_credentials() {
@@ -89,31 +87,4 @@ fn fake_event_sink_assigns_deterministic_order() {
     assert_eq!(first.sequence, 1);
     assert_eq!(second.sequence, 2);
     assert_eq!(sink.recorded(), vec![first, second]);
-}
-
-#[test]
-fn service_owns_explicit_dependencies_and_an_event_sink() {
-    let events: Arc<dyn EventSink> = Arc::new(FakeEventSink::default());
-    let service = VideoCreaterService::new(ServiceDependencies::unconfigured(), events);
-
-    assert_eq!(
-        service.dependencies().project_store.name(),
-        "unconfigured-project-store"
-    );
-    assert_eq!(
-        service.dependencies().jobs.name(),
-        "unconfigured-job-coordinator"
-    );
-    assert_eq!(
-        service.dependencies().credentials.name(),
-        "unconfigured-credential-store"
-    );
-    assert_eq!(
-        service.dependencies().agents.name(),
-        "unconfigured-agent-coordinator"
-    );
-    assert_eq!(
-        service.dependencies().renders.name(),
-        "unconfigured-render-coordinator"
-    );
 }

@@ -125,8 +125,7 @@ use video_creater_lib::render_pipeline::project_export::{
     render_prepared_preview_frame_to_split_project_folder,
     render_prepared_preview_frame_to_split_project_folder_with_lease,
     render_webm_to_split_project_folder_for_timeline as render_project_webm_to_split_project_folder_for_timeline,
-    MediaExportRequest, PreparedPreviewFrameResult, ProjectMediaRenderResult,
-    ProjectWebmRenderResult,
+    MediaExportRequest, PreparedPreviewFrameResult, ProjectWebmRenderResult,
 };
 use video_creater_lib::render_pipeline::report::{
     write_json_report, write_markdown_report, RenderPreviewComparison,
@@ -405,9 +404,10 @@ fn provider_health_order(provider: &str) -> usize {
     }
 }
 /// Cooperative boundary for app-owned cleanup-scope and active-session mutations.
-/// Canonical project load/save transitions and cleanup workers must hold this lease. External
-/// filesystem writers are outside the boundary, so cleanup also revalidates identity and the full
-/// fingerprint immediately before deletion.
+/// Project activation/open/create-save transitions and cleanup workers hold this lease.
+/// Nonactivating existing-only snapshot restores use the project mutation metadata transaction.
+/// External filesystem writers are outside the boundary, so cleanup also revalidates identity
+/// and the full fingerprint immediately before deletion.
 #[derive(Debug, Default)]
 struct StorageProjectMutationCoordinatorState;
 
@@ -1533,6 +1533,7 @@ async fn save_split_project_to_folder<R: tauri::Runtime>(
     project_dir: String,
     project: VideoProject,
     expected_revision: u64,
+    activate_project: Option<bool>,
 ) -> Result<ProjectActionWriteResult, String> {
     let queue_dir = project_dir.clone();
     run_project_write_command("project save", &queue_dir, move |_| {
@@ -1540,6 +1541,7 @@ async fn save_split_project_to_folder<R: tauri::Runtime>(
             project_dir,
             project,
             expected_revision,
+            activate_project.unwrap_or(true),
             &app.state::<ActiveProjectSessionState>(),
             &app.state::<StorageProjectMutationCoordinatorState>(),
         )
@@ -1551,9 +1553,25 @@ fn save_split_project_to_folder_blocking(
     project_dir: String,
     project: VideoProject,
     expected_revision: u64,
+    activate_project: bool,
     session_state: &ActiveProjectSessionState,
     mutation_coordinator: &StorageProjectMutationCoordinatorState,
 ) -> Result<ProjectActionWriteResult, String> {
+    if !activate_project {
+        let project_dir = resolve_project_dir(&project_dir)?;
+        let identity =
+            video_creater_lib::app_service::projects::read_project_identity(&project_dir)
+                .map_err(|error| error.to_string())?;
+        if identity.id != project.id {
+            return Err(
+                "snapshot restore project identity does not match the canonical project".into(),
+            );
+        }
+        let context = desktop_project_context(&project, expected_revision);
+        return desktop_project_service()
+            .save_existing(&context, &project_dir, project)
+            .map_err(|error| error.to_string());
+    }
     let lease = mutation_coordinator.acquire()?;
     let result =
         save_split_project_to_folder_impl(project_dir.clone(), project, expected_revision)?;
@@ -1755,8 +1773,18 @@ async fn load_job_progress_from_split_project_folder(
 ) -> Result<Vec<JobProgressSnapshot>, String> {
     run_blocking_command("job progress load", move || {
         let project_dir = resolve_project_dir(&project_dir)?;
-        let project = load_split_project(&project_dir).map_err(|error| error.to_string())?;
-        let context = desktop_project_context(&project, project.content_revision);
+        let identity =
+            video_creater_lib::app_service::projects::read_project_identity(&project_dir)
+                .map_err(|error| error.to_string())?;
+        let context = RequestContext::new(
+            ClientKind::Desktop,
+            uuid::Uuid::new_v4().to_string(),
+            Some(identity.id),
+            None,
+            BTreeSet::from([AuthorizationScope::ProjectRead]),
+            None,
+        )
+        .map_err(|error| error.to_string())?;
         desktop_project_service()
             .job_progress(&context, &project_dir)
             .map_err(|error| error.to_string())
@@ -2615,10 +2643,15 @@ fn apply_project_action_to_project(
 async fn apply_project_action_to_split_project_folder(
     project_dir: String,
     action: ProjectAction,
+    expected_revision: Option<u64>,
 ) -> Result<ProjectActionWriteResult, String> {
     let queue_dir = project_dir.clone();
     run_project_write_command("project action", &queue_dir, move |_| {
-        apply_project_action_to_split_project_folder_blocking(project_dir, action)
+        apply_project_action_to_split_project_folder_blocking(
+            project_dir,
+            action,
+            expected_revision,
+        )
     })
     .await
 }
@@ -2626,10 +2659,20 @@ async fn apply_project_action_to_split_project_folder(
 fn apply_project_action_to_split_project_folder_blocking(
     project_dir: String,
     action: ProjectAction,
+    expected_revision: Option<u64>,
 ) -> Result<ProjectActionWriteResult, String> {
     let project_dir = resolve_project_dir(&project_dir)?;
-    let project = load_split_project(&project_dir).map_err(|error| error.to_string())?;
-    let context = desktop_project_context(&project, project.content_revision);
+    let identity = video_creater_lib::app_service::projects::read_project_identity(&project_dir)
+        .map_err(|error| error.to_string())?;
+    let context = RequestContext::new(
+        ClientKind::Desktop,
+        uuid::Uuid::new_v4().to_string(),
+        Some(identity.id),
+        Some(expected_revision.unwrap_or(identity.content_revision)),
+        BTreeSet::from([AuthorizationScope::ProjectWrite]),
+        None,
+    )
+    .map_err(|error| error.to_string())?;
     desktop_project_service()
         .apply_action(&context, &project_dir, action)
         .map_err(|error| error.to_string())
@@ -2639,10 +2682,15 @@ fn apply_project_action_to_split_project_folder_blocking(
 async fn apply_project_actions_to_split_project_folder(
     project_dir: String,
     actions: Vec<ProjectAction>,
+    expected_revision: Option<u64>,
 ) -> Result<ProjectActionWriteResult, String> {
     let queue_dir = project_dir.clone();
     run_project_write_command("project actions", &queue_dir, move |_| {
-        apply_project_actions_to_split_project_folder_blocking(project_dir, actions)
+        apply_project_actions_to_split_project_folder_blocking(
+            project_dir,
+            actions,
+            expected_revision,
+        )
     })
     .await
 }
@@ -2650,10 +2698,20 @@ async fn apply_project_actions_to_split_project_folder(
 fn apply_project_actions_to_split_project_folder_blocking(
     project_dir: String,
     actions: Vec<ProjectAction>,
+    expected_revision: Option<u64>,
 ) -> Result<ProjectActionWriteResult, String> {
     let project_dir = resolve_project_dir(&project_dir)?;
-    let project = load_split_project(&project_dir).map_err(|error| error.to_string())?;
-    let context = desktop_project_context(&project, project.content_revision);
+    let identity = video_creater_lib::app_service::projects::read_project_identity(&project_dir)
+        .map_err(|error| error.to_string())?;
+    let context = RequestContext::new(
+        ClientKind::Desktop,
+        uuid::Uuid::new_v4().to_string(),
+        Some(identity.id),
+        Some(expected_revision.unwrap_or(identity.content_revision)),
+        BTreeSet::from([AuthorizationScope::ProjectWrite]),
+        None,
+    )
+    .map_err(|error| error.to_string())?;
     desktop_project_service()
         .apply_actions(&context, &project_dir, actions)
         .map_err(|error| error.to_string())
@@ -4609,10 +4667,53 @@ async fn render_media_to_split_project_folder(
     encode_tier: Option<ExportEncodeTier>,
     output: Option<ExportOutputRequest>,
     export_settings: Option<JobExportSettings>,
-) -> Result<ProjectMediaRenderResult, String> {
+    admission_protocol: Option<u32>,
+    expected_revision: Option<u64>,
+) -> Result<serde_json::Value, String> {
     run_blocking_command("media render", move || {
         let options = export_render_options(profile, quality, width, height, fps, encode_tier)?;
         let project_dir = resolve_project_dir(&project_dir)?;
+        if let Some(protocol) = admission_protocol {
+            if protocol != 1 {
+                return Err("Unsupported render admission protocol".into());
+            }
+            let expected_revision =
+                expected_revision.ok_or("Expected revision is required for render admission")?;
+            let input = video_creater_lib::render_pipeline::project_export::MediaRenderInput {
+                project_id,
+                profile,
+                quality,
+                width,
+                height,
+                job_id,
+                attempt_id,
+                updated_at,
+                range_start_seconds,
+                range_end_seconds,
+                timeline_id,
+                fps,
+                encode_tier,
+                output,
+                export_settings,
+            };
+            return serde_json::to_value(
+                video_creater_lib::app_service::render_jobs::RenderJobService::admit(
+                    &RequestContext::new(
+                        ClientKind::Desktop,
+                        uuid::Uuid::new_v4().to_string(),
+                        Some(input.project_id.clone()),
+                        Some(expected_revision),
+                        BTreeSet::from([AuthorizationScope::ProjectWrite]),
+                        None,
+                    )
+                    .map_err(|error| error.to_string())?,
+                    &project_dir,
+                    input,
+                )
+                .map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string());
+        }
         let mut job = temporal_job_summary(
             TemporalWorkflowKind::RenderDraft,
             &project_id,
@@ -4633,7 +4734,7 @@ async fn render_media_to_split_project_folder(
             }
         };
 
-        render_media_export_to_split_project_folder(MediaExportRequest {
+        let result = render_media_export_to_split_project_folder(MediaExportRequest {
             project_dir: &project_dir,
             project_id: &project_id,
             options,
@@ -4644,7 +4745,95 @@ async fn render_media_to_split_project_folder(
             timeline_id: timeline_id.as_deref(),
             output: output.as_ref(),
         })
-        .map_err(pipeline_errors_to_string)
+        .map_err(pipeline_errors_to_string)?;
+        serde_json::to_value(result).map_err(|error| error.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+async fn load_render_attempt_in_split_project_folder(
+    project_dir: String,
+    job_id: String,
+    attempt_id: String,
+) -> Result<video_creater_lib::render_pipeline::project_export::MediaRenderAttempt, String> {
+    run_blocking_command("render attempt", move || {
+        let project_dir = resolve_project_dir(&project_dir)?;
+        let identity =
+            video_creater_lib::app_service::projects::read_project_identity(&project_dir)
+                .map_err(|error| error.to_string())?;
+        let context = RequestContext::new(
+            ClientKind::Desktop,
+            uuid::Uuid::new_v4().to_string(),
+            Some(identity.id),
+            None,
+            BTreeSet::from([AuthorizationScope::ProjectRead]),
+            None,
+        )
+        .map_err(|error| error.to_string())?;
+        video_creater_lib::app_service::render_jobs::RenderJobService::attempt(
+            &context,
+            &project_dir,
+            video_creater_lib::app_service::render_jobs::RenderAttemptQuery { job_id, attempt_id },
+        )
+        .map_err(|error| error.to_string())
+    })
+    .await
+}
+
+#[tauri::command]
+async fn recover_render_attempt_in_split_project_folder(
+    project_dir: String,
+    job_id: String,
+    attempt_id: String,
+) -> Result<video_creater_lib::render_pipeline::project_export::MediaRenderAttempt, String> {
+    run_blocking_command("render attempt recovery", move || {
+        let project_dir = resolve_project_dir(&project_dir)?;
+        let identity =
+            video_creater_lib::app_service::projects::read_project_identity(&project_dir)
+                .map_err(|error| error.to_string())?;
+        let context = RequestContext::new(
+            ClientKind::Desktop,
+            uuid::Uuid::new_v4().to_string(),
+            Some(identity.id),
+            None,
+            BTreeSet::from([AuthorizationScope::ProjectWrite]),
+            None,
+        )
+        .map_err(|error| error.to_string())?;
+        video_creater_lib::app_service::render_jobs::RenderJobService::recover(
+            &context,
+            &project_dir,
+            video_creater_lib::app_service::render_jobs::RenderAttemptQuery { job_id, attempt_id },
+        )
+        .map_err(|error| error.to_string())
+    })
+    .await
+}
+
+/// A consistent read for polling/reconciliation. Opening a project remains a separate
+/// activation path with recovery and session ownership; ordinary reads do not take that path.
+#[tauri::command]
+async fn read_project_snapshot_from_split_project_folder(
+    project_dir: String,
+) -> Result<VideoProject, String> {
+    run_blocking_command("project snapshot", move || {
+        let project_dir = resolve_project_dir(&project_dir)?;
+        let identity =
+            video_creater_lib::app_service::projects::read_project_identity(&project_dir)
+                .map_err(|error| error.to_string())?;
+        let context = RequestContext::new(
+            ClientKind::Desktop,
+            uuid::Uuid::new_v4().to_string(),
+            Some(identity.id),
+            None,
+            BTreeSet::from([AuthorizationScope::ProjectRead]),
+            None,
+        )
+        .map_err(|error| error.to_string())?;
+        desktop_project_service()
+            .load(&context, &project_dir)
+            .map_err(|error| error.to_string())
     })
     .await
 }
@@ -5918,7 +6107,11 @@ fn run_storage_cleanup_operation<R: tauri::Runtime>(
         )),
         Ok(_lease) => match project_session
             .as_ref()
-            .map(|session| acquire_split_project_mutation_lease(&session.canonical_root))
+            .map(|session| {
+                video_creater_lib::settings::storage::acquire_storage_cleanup_project_ownership(
+                    &session.canonical_root,
+                )
+            })
             .transpose()
         {
             Err(detail) => Err(storage_cleanup_run_failure(
@@ -5927,7 +6120,7 @@ fn run_storage_cleanup_operation<R: tauri::Runtime>(
                     detail,
                 ),
             )),
-            Ok(_project_lease) => match active_project_session_still_matches(
+            Ok(_project_ownership) => match active_project_session_still_matches(
                 &app,
                 project_session.as_ref(),
             )
@@ -8130,6 +8323,9 @@ pub fn run() {
             export_palmier_project_package_to_split_project_folder,
             render_webm_to_split_project_folder,
             render_media_to_split_project_folder,
+            load_render_attempt_in_split_project_folder,
+            recover_render_attempt_in_split_project_folder,
+            read_project_snapshot_from_split_project_folder,
             load_render_pipeline_report_from_split_project_folder,
             run_preview_render_comparison_request_in_split_project_folder,
             cancel_render_job_in_split_project_folder,
@@ -10218,6 +10414,116 @@ mod tests {
         assert!(attacker
             .join("renders/attacker-render/output.mp4")
             .is_file());
+    }
+
+    #[test]
+    fn snapshot_restore_does_not_wait_for_global_activation_or_change_the_session() {
+        let root = tempfile::tempdir().expect("snapshot restore root");
+        let project_dir = root.path().join("project");
+        let saved = super::save_split_project_to_folder_impl(
+            project_dir.display().to_string(),
+            sample_project(),
+            0,
+        )
+        .expect("initial save");
+        let session = std::sync::Arc::new(super::ActiveProjectSessionState::default());
+        let coordinator = super::StorageProjectMutationCoordinatorState;
+        let lease = coordinator.acquire().expect("held global lease");
+        session
+            .record_successful_project_root(&project_dir, &lease)
+            .expect("active session");
+        let before = session.current().expect("session before restore");
+        let (started_tx, started_rx) = std::sync::mpsc::channel();
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let worker_session = session.clone();
+        let worker_dir = project_dir.clone();
+        let worker = std::thread::spawn(move || {
+            started_tx.send(()).expect("worker started");
+            let mut snapshot = saved.project;
+            snapshot.name = "restored snapshot".into();
+            let expected_revision = snapshot.content_revision;
+            let result = super::save_split_project_to_folder_blocking(
+                worker_dir.display().to_string(),
+                snapshot,
+                expected_revision,
+                false,
+                &worker_session,
+                &super::StorageProjectMutationCoordinatorState,
+            );
+            done_tx.send(result).expect("restore result");
+        });
+        let started = started_rx.recv_timeout(std::time::Duration::from_secs(5));
+        let early = done_rx.recv_timeout(std::time::Duration::from_secs(5));
+        // Always release and join before asserting, including when the old global gate blocks.
+        drop(lease);
+        worker.join().expect("restore worker");
+        assert!(started.is_ok(), "restore worker must start");
+        let restored = early
+            .expect("snapshot restore must finish while global activation is held")
+            .expect("snapshot restore succeeds");
+        assert_eq!(restored.project.name, "restored snapshot");
+        assert_eq!(session.current().expect("session after restore"), before);
+    }
+
+    #[test]
+    fn snapshot_restore_requires_an_existing_matching_safe_manifest() {
+        let root = tempfile::tempdir().expect("snapshot identity root");
+        let missing = root.path().join("missing");
+        let session = super::ActiveProjectSessionState::default();
+        let coordinator = super::StorageProjectMutationCoordinatorState;
+        assert!(super::save_split_project_to_folder_blocking(
+            missing.display().to_string(),
+            sample_project(),
+            0,
+            false,
+            &session,
+            &coordinator,
+        )
+        .is_err());
+        assert!(
+            !missing.exists(),
+            "snapshot restore must not create a project"
+        );
+        let project_dir = root.path().join("project");
+        let saved = super::save_split_project_to_folder_impl(
+            project_dir.display().to_string(),
+            sample_project(),
+            0,
+        )
+        .expect("initial save");
+        let mut wrong = saved.project.clone();
+        wrong.id = "different-project".into();
+        assert!(super::save_split_project_to_folder_blocking(
+            project_dir.display().to_string(),
+            wrong,
+            saved.project.content_revision,
+            false,
+            &session,
+            &coordinator,
+        )
+        .is_err());
+        assert_eq!(
+            super::load_split_project_from_folder_impl(project_dir.display().to_string()).unwrap(),
+            saved.project
+        );
+        #[cfg(unix)]
+        {
+            let manifest =
+                video_creater_lib::project::split::split_project_manifest_path(&project_dir);
+            let target = root.path().join("external-manifest.json");
+            std::fs::rename(&manifest, &target).unwrap();
+            std::os::unix::fs::symlink(target, manifest).unwrap();
+            assert!(super::save_split_project_to_folder_blocking(
+                project_dir.display().to_string(),
+                saved.project.clone(),
+                saved.project.content_revision,
+                false,
+                &session,
+                &coordinator,
+            )
+            .is_err());
+        }
+        assert!(session.current().unwrap().is_none());
     }
 
     #[test]
@@ -14593,6 +14899,7 @@ mod tests {
                             media_id: "media-1".to_string(),
                             name: name.to_string(),
                         }],
+                        None,
                     ));
                     assert!(
                         write.as_mut().poll(&mut context).is_pending(),

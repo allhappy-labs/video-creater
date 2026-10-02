@@ -28,6 +28,8 @@ interface ProjectHomeProps {
   onCreateProject: (projectDir: string) => void;
   onCreateRemoteProject?: (name: string) => void;
   remoteHostLabel?: string | undefined;
+  remoteCreationUnconfirmed?: boolean;
+  onRefreshRemoteProjects?: () => void;
   onRemoveProject?: (entry: RecentProjectEntry) => void;
   onOpenModelSettings?: () => void;
   openProjectError?: string | null;
@@ -47,6 +49,8 @@ export function ProjectHome({
   onCreateProject,
   onCreateRemoteProject,
   remoteHostLabel,
+  remoteCreationUnconfirmed = false,
+  onRefreshRemoteProjects,
   onRemoveProject,
   onOpenModelSettings,
   openProjectError = null,
@@ -77,7 +81,7 @@ export function ProjectHome({
   function handleOpenProjectFolder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isRemote) {
-      if (startMode === "create" && trimmedProjectDir && !isCreatingProject) {
+      if (startMode === "create" && trimmedProjectDir && !isCreatingProject && !remoteCreationUnconfirmed) {
         onCreateRemoteProject?.(trimmedProjectDir);
       }
       return;
@@ -103,6 +107,7 @@ export function ProjectHome({
               type="button"
               aria-label="New project"
               variant="ghost"
+              disabled={remoteCreationUnconfirmed}
               className="h-9 w-full justify-start gap-3 px-2 text-[13px] font-medium"
               onClick={() => {
                 if (canUseProjectDir && !isCreatingProject) {
@@ -161,20 +166,29 @@ export function ProjectHome({
                   (!isRemote && !canUseProjectDir) ||
                   (isRemote && !trimmedProjectDir) ||
                   isOpeningProject ||
-                  isCreatingProject
+                  isCreatingProject ||
+                  (startMode === "create" && remoteCreationUnconfirmed)
                 }
               >
                 {startMode === "create"
                   ? isCreatingProject ? "Creating project..." : "Create Project"
                   : isOpeningProject ? "Opening project..." : "Open Project Folder"}
               </Button>
-              {openProjectError ? (
+              {openProjectError && !remoteCreationUnconfirmed ? (
                 <div role="alert" className="rounded-md border border-destructive/30 bg-destructive/10 p-2 text-[11px]">
                   <div className="font-medium">{openProjectErrorTitle}</div>
                   <div className="mt-1 text-muted-foreground">{openProjectError}</div>
                 </div>
               ) : null}
             </form>
+          ) : null}
+
+          {remoteCreationUnconfirmed ? (
+            <div role="alert" className="mt-4 rounded-md border border-destructive/30 bg-destructive/10 p-2 text-[11px]">
+              <div className="font-medium">Project creation unconfirmed</div>
+              <p className="mt-1 text-muted-foreground">The project may already exist. Refresh host projects and open it from My Projects if it appears. New project creation stays paused while this request is unconfirmed.</p>
+              {onRefreshRemoteProjects ? <Button type="button" variant="outline" size="sm" className="mt-2 w-full" onClick={onRefreshRemoteProjects}>Refresh host projects</Button> : null}
+            </div>
           ) : null}
 
           {onOpenModelSettings ? (
@@ -230,6 +244,7 @@ export function ProjectHome({
                   type="button"
                   data-testid="project-card"
                   className="grid h-[120px] w-[150px] place-items-center rounded-xl border border-white/10 bg-gradient-to-b from-white/[0.04] to-black/60 text-white/40 hover:text-white/65 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  disabled={remoteCreationUnconfirmed}
                   onClick={() => setStartMode("create")}
                 >
                   <FolderPlus className="h-7 w-7" aria-hidden="true" />

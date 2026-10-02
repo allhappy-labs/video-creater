@@ -15,6 +15,7 @@ const saveStatusLabel: Record<SaveStatus, string> = {
   saving: "Saving…",
   unsaved: "Not saved",
   failed: "Save failed",
+  uncertain: "Save unconfirmed",
 };
 
 interface TopBarProps {

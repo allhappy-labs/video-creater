@@ -9,7 +9,7 @@ export interface CanonicalFrameSequence {
   readonly startSeconds: number;
   readonly durationSeconds: number;
   readonly fps: number;
-  readonly frameUrls: readonly string[];
+  readonly frameUrls: readonly (string | null)[];
 }
 
 export interface CanonicalFrameLayer {
@@ -70,10 +70,7 @@ export function canonicalFrameSequences(result: PreparedProjectPreview, projectD
     startSeconds: sequence.startSeconds,
     durationSeconds: sequence.durationSeconds,
     fps: sequence.fps,
-    frameUrls: sequence.framePaths.flatMap((path) => {
-      const url = previewUrlForMedia(projectDir, path);
-      return url ? [url] : [];
-    }),
+    frameUrls: sequence.framePaths.map((path) => previewUrlForMedia(projectDir, path)),
   }));
 }
 
@@ -144,11 +141,11 @@ export function canonicalPreloadUrls(sequences: readonly CanonicalFrameSequence[
     if (index === null) return [];
     const first = Math.max(0, index - preloadFramesBehind);
     const last = Math.min(sequence.frameUrls.length - 1, index + preloadFramesAhead);
-    return sequence.frameUrls.slice(first, last + 1);
+    return sequence.frameUrls.slice(first, last + 1).filter((url): url is string => Boolean(url));
   });
 }
 
-/** Decodes frames ahead of display. A URL loads once; the loaded set is an LRU capped at 480 URLs. */
+/** Decodes frames ahead of display. Loaded URLs and pending images are each capped at 480. */
 export class CanonicalFramePreloader {
   private readonly loaded = new Set<string>();
   private readonly pending = new Map<string, HTMLImageElement>();
@@ -158,11 +155,12 @@ export class CanonicalFramePreloader {
   preload(urls: readonly string[]): void {
     for (const url of urls) {
       if (this.loaded.has(url) || this.pending.has(url)) continue;
+      if (this.pending.size >= maximumLoadedFrameUrls) break;
       const image = this.createImage();
       image.decoding = "async";
-      const markLoaded = () => this.markLoaded(url);
+      const markLoaded = () => this.markLoaded(url, image);
       image.onload = markLoaded;
-      image.onerror = () => this.pending.delete(url);
+      image.onerror = () => { if (this.pending.get(url) === image) this.pending.delete(url); };
       this.pending.set(url, image);
       image.src = url;
       if (typeof image.decode === "function") void image.decode().then(markLoaded, () => undefined);
@@ -175,10 +173,16 @@ export class CanonicalFramePreloader {
 
   clear(): void {
     this.loaded.clear();
+    for (const image of this.pending.values()) {
+      image.onload = null;
+      image.onerror = null;
+      image.removeAttribute("src");
+    }
     this.pending.clear();
   }
 
-  private markLoaded(url: string): void {
+  private markLoaded(url: string, image: HTMLImageElement): void {
+    if (this.pending.get(url) !== image) return;
     this.pending.delete(url);
     this.loaded.add(url);
     while (this.loaded.size > maximumLoadedFrameUrls) {

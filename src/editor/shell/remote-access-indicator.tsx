@@ -5,6 +5,7 @@ import {
   remoteProjectAccess,
   subscribeRemoteProjectAccess,
   takeOverRemoteProject,
+  refreshRemoteProjectAccess,
 } from "@/lib/runtime/adapters/remote-project-access";
 import { OverlayDialog } from "../overlays/overlay-dialog";
 import { useEditorStore } from "../store/editor-store-context";
@@ -23,6 +24,9 @@ export function RemoteAccessIndicator({ compact }: { readonly compact: boolean }
   const [error, setError] = useState<string | null>(null);
 
   if (runtimeMode !== "browser") return null;
+  if (access.mode === "unavailable") {
+    return <button type="button" title={access.message} onClick={() => void refreshRemoteProjectAccess(projectId).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : "Editing access could not be acquired."))} className="h-7 shrink-0 rounded-control px-2 text-[11px] text-warning hover:bg-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">Retry editing access</button>;
+  }
   if (access.mode !== "readOnly") {
     return (
       <span

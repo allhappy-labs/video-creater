@@ -331,6 +331,13 @@ describe("FailureCard", () => {
     expect(screen.getByRole("article", { name: "The edit didn't finish" })).toHaveTextContent("The edit timed out.");
     expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
   });
+
+  it("shows an unconfirmed edit without claiming nothing changed or offering Retry", () => {
+    renderFailure(failedMessage("assistant-unknown", "user-unknown", "outcomeUnknown", "The edit may have completed. Refresh the project before editing again.", false), true);
+    expect(screen.getByRole("article", { name: "Edit unconfirmed" })).toHaveTextContent("The edit may have completed.");
+    expect(screen.queryByText(/Nothing was changed/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+  });
 });
 
 describe("VariationResultCard", () => {

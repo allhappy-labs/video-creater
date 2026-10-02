@@ -144,4 +144,15 @@ describe("ClipFilmstrip", () => {
       expect.objectContaining({ zoomBucket: 150 }),
     );
   });
+
+  it("requests new sampling when width changes within the same zoom bucket", async () => {
+    backendRequest.mockResolvedValue({ frames: [{ timeSeconds: 1, relativePath: "a.jpg" }] });
+    const item = videoItem();
+    const rendered = renderFilmstrip(item);
+    await waitFor(() => expect(backendRequest).toHaveBeenCalledTimes(1));
+    rendered.unmount();
+    renderWithEditorStore(<ClipFilmstrip item={item} width={321} height={52} />, { project: splitProject(), projectDir: "/p" });
+    await waitFor(() => expect(backendRequest).toHaveBeenCalledTimes(2));
+    expect(backendRequest).toHaveBeenLastCalledWith("cache_timeline_filmstrip_in_split_project_folder", expect.objectContaining({ clipPixelWidth: 321, zoomBucket: 100 }));
+  });
 });

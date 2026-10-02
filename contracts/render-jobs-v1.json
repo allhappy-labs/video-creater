@@ -1,0 +1,27 @@
+{
+  "protocol": 1,
+  "operations": {
+    "admit": "render_media_to_split_project_folder",
+    "attempt": "load_render_attempt_in_split_project_folder",
+    "recover": "recover_render_attempt_in_split_project_folder"
+  },
+  "input": {
+    "projectId": "project-contract",
+    "profile": "webm",
+    "quality": "draft",
+    "width": 640,
+    "height": 360,
+    "jobId": "contract-render",
+    "attemptId": "render-attempt/contract",
+    "updatedAt": "2026-10-01T00:00:00Z",
+    "rangeStartSeconds": null,
+    "rangeEndSeconds": null,
+    "timelineId": null,
+    "fps": null,
+    "encodeTier": null,
+    "output": null,
+    "exportSettings": null
+  },
+  "admissionFields": ["admissionProtocol", "attemptId", "jobId", "project", "sourceRevision"],
+  "attempts": [{"status": "pending"}, {"status": "failed", "message": "interrupted", "interrupted": true}]
+}

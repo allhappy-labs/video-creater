@@ -79,6 +79,11 @@ mod canonical_capture;
 mod named_export;
 
 pub use named_export::{render_media_export_to_split_project_folder, MediaExportRequest};
+mod admission;
+pub use admission::{
+    admit_media_render, read_media_render_attempt, recover_media_render_attempt,
+    MediaRenderAdmission, MediaRenderAttempt, MediaRenderInput,
+};
 
 const PROJECT_RENDER_TIMEOUT: Duration = Duration::from_secs(3600);
 const MIN_RENDER_STORAGE_RESERVE_BYTES: u64 = 256 * 1024 * 1024;
@@ -486,6 +491,9 @@ fn render_job_needs_recovery(project_dir: &Path, project_id: &str, job: &JobSumm
     }
     match run_id {
         Some(attempt_id) if attempt_id.starts_with("render-attempt/") => {
+            if admission::attempt_is_pinned(project_dir, &job.id, attempt_id) {
+                return false;
+            }
             let project_root =
                 std::fs::canonicalize(project_dir).unwrap_or_else(|_| project_dir.to_path_buf());
             RenderAttemptKey::new(project_root, project_id, &job.id, attempt_id)
@@ -927,6 +935,8 @@ fn render_webm_to_split_project_folder_for_timeline_with_lease(
     request: WebmRenderRequest<'_>,
 ) -> PipelineResult<ProjectWebmRenderResult> {
     let result = render_project_media_to_split_project_folder(ProjectMediaRenderRequest {
+        admitted_project: None,
+        admitted_identity: None,
         project_dir: request.project_dir,
         quality_profile: request.profile,
         options: None,
@@ -1310,6 +1320,8 @@ fn render_media_to_split_project_folder_for_timeline_with_lease(
     };
 
     render_project_media_to_split_project_folder(ProjectMediaRenderRequest {
+        admitted_project: None,
+        admitted_identity: None,
         project_dir: request.project_dir,
         quality_profile,
         options: Some(request.options),
@@ -1327,7 +1339,27 @@ fn render_media_to_split_project_folder_for_timeline_with_lease(
     })
 }
 
+fn persist_media_render_actions(
+    project_dir: &Path,
+    actions: Vec<ProjectAction>,
+    lease: &SplitProjectMutationLease,
+    preserve_revision: bool,
+) -> Result<ProjectActionWriteResult, crate::project::split::SplitProjectError> {
+    if preserve_revision {
+        crate::project::split::apply_project_bookkeeping_actions_to_split_project_with_lease(
+            project_dir,
+            actions,
+            lease,
+        )
+    } else {
+        apply_project_actions_to_split_project(project_dir, actions)
+    }
+}
+
 struct ProjectMediaRenderRequest<'a> {
+    /// An immutable input captured by durable admission. Legacy callers capture it at start.
+    admitted_project: Option<VideoProject>,
+    admitted_identity: Option<admission::PackageIdentity>,
     project_dir: &'a Path,
     quality_profile: RenderQualityProfile,
     options: Option<ExportRenderOptions>,
@@ -1348,6 +1380,8 @@ fn render_project_media_to_split_project_folder(
     request: ProjectMediaRenderRequest<'_>,
 ) -> PipelineResult<ProjectMediaRenderResult> {
     let ProjectMediaRenderRequest {
+        admitted_project,
+        admitted_identity,
         project_dir,
         quality_profile,
         options,
@@ -1368,18 +1402,34 @@ fn render_project_media_to_split_project_folder(
     // held, so an edit queued behind this render lands while it encodes. The render keeps working
     // from `project`, the snapshot taken here, so a mid-render edit cannot change its output, and
     // the result writes below take the lease again for as long as each write needs it.
+    let was_admitted = admitted_project.is_some();
+    // Canonical result frames are internal evidence, including the macOS native
+    // one-frame render. Their metadata must not invalidate the originating edit.
+    let preserve_revision = was_admitted || job.kind == "captureCanonicalPreviewFrame";
     let (project, attempt, job_id, attempt_id) = {
         let _project_lease = acquire_render_project_mutation_lease(project_dir)?;
-        let project = load_split_project(project_dir).map_err(|error| {
-            vec![PipelineError::new(
-                PipelineErrorCode::PipelineInputInvalid,
-                "projectDir",
-                format!("Split project could not be loaded for {render_label} render."),
-                "Save the project as a split project folder and retry the render.",
-            )
-            .with_detail("projectDir", project_dir.display().to_string())
-            .with_detail("error", error.to_string())]
-        })?;
+        if let Some(identity) = admitted_identity.as_ref() {
+            let attempt_id = attempt
+                .as_ref()
+                .map(|attempt| attempt.attempt_id.as_str())
+                .ok_or_else(|| render_cancelled_error("render.admission.attempt"))?;
+            identity
+                .active_job(project_dir, &job.id, attempt_id)
+                .map_err(|_| render_cancelled_error("render.admission.identity"))?;
+        }
+        let project = admitted_project
+            .map(Ok)
+            .unwrap_or_else(|| load_split_project(project_dir))
+            .map_err(|error| {
+                vec![PipelineError::new(
+                    PipelineErrorCode::PipelineInputInvalid,
+                    "projectDir",
+                    format!("Split project could not be loaded for {render_label} render."),
+                    "Save the project as a split project folder and retry the render.",
+                )
+                .with_detail("projectDir", project_dir.display().to_string())
+                .with_detail("error", error.to_string())]
+            })?;
         let attempt = match attempt {
             Some(attempt) => {
                 if project.id != attempt.project_id {
@@ -1399,14 +1449,23 @@ fn render_project_media_to_split_project_folder(
             let _ = cancellation.begin_cancelled_completion();
             let attempt_id = attempt.attempt_id.clone();
             let job_id = job.id.clone();
-            let mut actions = render_job_start_actions(&project, job, updated_at, &attempt_id);
+            let mut actions = if was_admitted {
+                Vec::new()
+            } else {
+                render_job_start_actions(&project, job, updated_at, &attempt_id)
+            };
             actions.push(ProjectAction::UpdateJobStatus {
                 job_id,
                 status: JobStatus::Cancelled,
                 updated_at: updated_at.to_string(),
                 run_id: Some(attempt_id),
             });
-            let terminal_write = apply_project_actions_to_split_project(project_dir, actions);
+            let terminal_write = persist_media_render_actions(
+                project_dir,
+                actions,
+                &_project_lease,
+                preserve_revision,
+            );
             cancellation.mark_terminal();
             terminal_write.map_err(|error| {
                 render_project_action_error(
@@ -1443,9 +1502,20 @@ fn render_project_media_to_split_project_folder(
         })?;
         let job_id = job.id.clone();
         let attempt_id = attempt.attempt_id.clone();
-        apply_project_actions_to_split_project(
+        persist_media_render_actions(
             project_dir,
-            render_job_start_actions(&project, job.clone(), updated_at, &attempt_id),
+            if was_admitted {
+                vec![ProjectAction::UpdateJobStatus {
+                    job_id: job.id.clone(),
+                    status: JobStatus::Running,
+                    updated_at: updated_at.to_string(),
+                    run_id: Some(attempt_id.clone()),
+                }]
+            } else {
+                render_job_start_actions(&project, job.clone(), updated_at, &attempt_id)
+            },
+            &_project_lease,
+            preserve_revision,
         )
         .map_err(|error| {
             render_project_action_error(render_label, "Persisting render job start failed.", error)
@@ -1455,6 +1525,7 @@ fn render_project_media_to_split_project_folder(
     let cancellation = attempt.guard.token();
 
     let mut result = render_project_media_after_job_started(StartedProjectMediaRender {
+        admitted_identity: admitted_identity.as_ref(),
         project_dir,
         project: &project,
         quality_profile,
@@ -1473,6 +1544,18 @@ fn render_project_media_to_split_project_folder(
     });
 
     if let Err(errors) = &mut result {
+        // Revalidate before cleanup, terminal writes or diagnostic artifacts. An old worker
+        // cannot alter a replacement package, a newer attempt or a canonical terminal job.
+        let _project_lease = acquire_render_project_mutation_lease(project_dir)?;
+        if let Some(identity) = admitted_identity.as_ref() {
+            if identity
+                .active_job(project_dir, &job_id, &attempt_id)
+                .is_err()
+            {
+                cancellation.mark_terminal();
+                return result;
+            }
+        }
         let mut terminal_status = claim_error_terminal(&cancellation);
         let cancelled = terminal_status == JobStatus::Cancelled;
         let mut cleanup_failed = false;
@@ -1485,7 +1568,7 @@ fn render_project_media_to_split_project_folder(
                 errors.append(&mut cleanup_errors);
             }
         }
-        let terminal_write = apply_project_actions_to_split_project(
+        let terminal_write = persist_media_render_actions(
             project_dir,
             vec![ProjectAction::UpdateJobStatus {
                 job_id: job_id.clone(),
@@ -1493,6 +1576,8 @@ fn render_project_media_to_split_project_folder(
                 updated_at: updated_at.to_string(),
                 run_id: Some(attempt_id),
             }],
+            &_project_lease,
+            preserve_revision,
         );
         if terminal_status == JobStatus::Failed && !cleanup_failed && terminal_write.is_ok() {
             let _ = write_failed_project_media_render_report(
@@ -1647,6 +1732,7 @@ fn write_failed_project_media_render_report(
 }
 
 struct StartedProjectMediaRender<'a> {
+    admitted_identity: Option<&'a admission::PackageIdentity>,
     project_dir: &'a Path,
     project: &'a VideoProject,
     quality_profile: RenderQualityProfile,
@@ -1668,6 +1754,7 @@ fn render_project_media_after_job_started(
     render: StartedProjectMediaRender<'_>,
 ) -> PipelineResult<ProjectMediaRenderResult> {
     let StartedProjectMediaRender {
+        admitted_identity,
         project_dir,
         project,
         quality_profile,
@@ -1890,6 +1977,22 @@ fn render_project_media_after_job_started(
         Some(cancellation),
         lease,
     )?;
+    // Copying to another filesystem can take minutes. Keep storage/artifact ownership,
+    // but stage bytes while edits and cancellation are still allowed.
+    let prepared_export = output
+        .as_ref()
+        .map(|output| {
+            named_export::prepare_rendered_export(
+                project_dir,
+                options,
+                output,
+                &paths.absolute_output_path(project_dir),
+                &job.id,
+                updated_at,
+                cancellation,
+            )
+        })
+        .transpose()?;
     if !cancellation.begin_completion() {
         return Err(render_cancelled_error("render.completion"));
     }
@@ -1949,6 +2052,17 @@ fn render_project_media_after_job_started(
         preview_comparison_request,
         preview_comparison: None,
     };
+    // Completion merges into the latest project, while retaining the admitted input.
+    // Hold mutation ownership across identity/attempt validation and report publication.
+    let _completion_lease = acquire_render_project_mutation_lease(project_dir)?;
+    if let Some(identity) = admitted_identity {
+        let attempt_id = run_id
+            .as_deref()
+            .ok_or_else(|| render_cancelled_error("render.completion.attempt"))?;
+        identity
+            .active_job(project_dir, &job.id, attempt_id)
+            .map_err(|_| render_cancelled_error("render.completion.identity"))?;
+    }
     write_json_report(
         &paths.absolute_json_report_path(project_dir),
         &render_report,
@@ -1969,18 +2083,8 @@ fn render_project_media_after_job_started(
             duration_tolerance_seconds: Some(render_duration_tolerance_seconds(plan.fps)),
         },
     )?;
-    let saved_export = output
-        .as_ref()
-        .map(|output| {
-            named_export::save_rendered_export(
-                project_dir,
-                options,
-                output,
-                &paths.absolute_output_path(project_dir),
-                &job.id,
-                updated_at,
-            )
-        })
+    let saved_export = prepared_export
+        .map(|prepared| prepared.publish())
         .transpose()?;
     let mut completion_actions = Vec::with_capacity(3);
     if completes_job {
@@ -1999,18 +2103,22 @@ fn render_project_media_after_job_started(
             artifact: saved.artifact.clone(),
         });
     }
-    let write = apply_project_actions_to_split_project(project_dir, completion_actions).map_err(
-        |error| {
-            if let Some(saved) = &saved_export {
-                let _ = std::fs::remove_file(&saved.materialized.absolute_path);
-            }
-            render_project_action_error(
-                render_label,
-                "Persisting render completion actions failed.",
-                error,
-            )
-        },
-    )?;
+    let write = persist_media_render_actions(
+        project_dir,
+        completion_actions,
+        &_completion_lease,
+        admitted_identity.is_some() || job.kind == "captureCanonicalPreviewFrame",
+    )
+    .map_err(|error| {
+        if let Some(saved) = &saved_export {
+            saved.rollback();
+        }
+        render_project_action_error(
+            render_label,
+            "Persisting render completion actions failed.",
+            error,
+        )
+    })?;
 
     Ok(media_result_from_write(
         write,
@@ -5308,6 +5416,139 @@ mod tests {
             .expect_err("terminal repeat must be rejected before commit");
             assert!(error.to_string().contains("terminal"));
             assert_eq!(load_split_project(temp.path()).expect("load after"), before);
+        }
+    }
+}
+
+#[cfg(test)]
+mod admitted_bookkeeping_tests {
+    use super::*;
+    use crate::project::fixtures::sample_project;
+    use crate::project::split::{
+        apply_project_actions_to_split_project_if_revision, save_split_project,
+    };
+
+    #[test]
+    fn admitted_worker_status_preserves_edit_revision_and_completion_merges_newer_edits() {
+        let root = tempfile::tempdir().unwrap();
+        let initial = save_split_project(root.path(), &sample_project())
+            .unwrap()
+            .project;
+        let job_id = "revision-render";
+        let attempt_id = "render-attempt/bookkeeping";
+        let mut job = crate::workflows::temporal_job_summary(
+            crate::workflows::TemporalWorkflowKind::RenderDraft,
+            &initial.id,
+            job_id,
+            JobStatus::Queued,
+            "2026-10-01",
+        );
+        job.workflow.as_mut().unwrap().run_id = Some(attempt_id.into());
+        let admitted = apply_project_actions_to_split_project(
+            root.path(),
+            vec![ProjectAction::RecordJob { job: Box::new(job) }],
+        )
+        .unwrap()
+        .project;
+        let lease = acquire_split_project_mutation_lease(root.path()).unwrap();
+        let running = persist_media_render_actions(
+            root.path(),
+            vec![ProjectAction::UpdateJobStatus {
+                job_id: job_id.into(),
+                status: JobStatus::Running,
+                updated_at: "2026-10-01".into(),
+                run_id: Some(attempt_id.into()),
+            }],
+            &lease,
+            true,
+        )
+        .unwrap()
+        .project;
+        assert_eq!(
+            running.content_revision, admitted.content_revision,
+            "worker status must not stale an acknowledged edit revision"
+        );
+        let edited = apply_project_actions_to_split_project_if_revision(
+            root.path(),
+            vec![ProjectAction::UpdateProjectSettings {
+                name: "Edited while encoding".into(),
+                render_settings: admitted.render_settings.clone(),
+            }],
+            &admitted.id,
+            admitted.content_revision,
+        )
+        .unwrap()
+        .project;
+        assert_eq!(
+            edited.content_revision,
+            admitted.content_revision + 1,
+            "user edits still advance the revision"
+        );
+        let completed = persist_media_render_actions(
+            root.path(),
+            vec![ProjectAction::UpdateJobStatus {
+                job_id: job_id.into(),
+                status: JobStatus::Completed,
+                updated_at: "2026-10-01".into(),
+                run_id: Some(attempt_id.into()),
+            }],
+            &lease,
+            true,
+        )
+        .unwrap()
+        .project;
+        assert_eq!(completed.content_revision, edited.content_revision);
+        assert_eq!(completed.name, edited.name);
+        assert_eq!(completed.jobs[0].status, JobStatus::Completed);
+        assert_eq!(load_split_project(root.path()).unwrap(), completed);
+    }
+    #[test]
+    fn bookkeeping_rejects_content_actions_and_invalid_batches_without_writing() {
+        let root = tempfile::tempdir().unwrap();
+        let initial = save_split_project(root.path(), &sample_project())
+            .unwrap()
+            .project;
+        let mut job = crate::workflows::temporal_job_summary(
+            crate::workflows::TemporalWorkflowKind::RenderDraft,
+            &initial.id,
+            "valid-job",
+            JobStatus::Queued,
+            "2026-10-01",
+        );
+        job.workflow.as_mut().unwrap().run_id = Some("render-attempt/valid".into());
+        let project = apply_project_actions_to_split_project(
+            root.path(),
+            vec![ProjectAction::RecordJob { job: Box::new(job) }],
+        )
+        .unwrap()
+        .project;
+        let lease = acquire_split_project_mutation_lease(root.path()).unwrap();
+        let valid = ProjectAction::UpdateJobStatus {
+            job_id: "valid-job".into(),
+            status: JobStatus::Running,
+            updated_at: "2026-10-01".into(),
+            run_id: Some("render-attempt/valid".into()),
+        };
+        for actions in [
+            vec![
+                valid.clone(),
+                ProjectAction::UpdateProjectSettings {
+                    name: "Must not persist".into(),
+                    render_settings: project.render_settings.clone(),
+                },
+            ],
+            vec![
+                valid,
+                ProjectAction::UpdateJobStatus {
+                    job_id: "missing-job".into(),
+                    status: JobStatus::Running,
+                    updated_at: "2026-10-01".into(),
+                    run_id: Some("render-attempt/missing".into()),
+                },
+            ],
+        ] {
+            assert!(persist_media_render_actions(root.path(), actions, &lease, true).is_err());
+            assert_eq!(load_split_project(root.path()).unwrap(), project);
         }
     }
 }

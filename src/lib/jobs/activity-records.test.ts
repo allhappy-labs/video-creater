@@ -1299,6 +1299,27 @@ describe("activity record characterization", () => {
     ]);
   });
 
+  it.each(["completed", "failed", "cancelled"] as const)("preserves %s for the same attempt even when an unfinished update has the same or newer timestamp", (status) => {
+    const run = { ...matchingWorkflow, runId: "render-attempt/one" };
+    const terminal = job({ id: "render", kind: "export_media", status, updatedAt: "2026-10-01T12:00:00Z", workflow: run });
+    for (const updatedAt of [terminal.updatedAt, "2026-10-01T12:00:01Z"]) {
+      for (const incomingStatus of ["queued", "running", status === "completed" ? "failed" : "completed"] as const) {
+        const incoming = job({ ...terminal, status: incomingStatus, updatedAt });
+        expect(mergeProjectJobs([terminal], [incoming])).toEqual([terminal]);
+      }
+    }
+  });
+
+  it("allows a different attempt to supersede a terminal job", () => {
+    const terminal = job({
+      id: "render", kind: "export_media", status: "cancelled", updatedAt: "2026-10-01T12:00:00Z",
+      workflow: { ...matchingWorkflow, runId: "render-attempt/one" },
+    });
+    const retry = job({ ...terminal, status: "queued", workflow: { ...matchingWorkflow, runId: "render-attempt/two" } });
+
+    expect(mergeProjectJobs([terminal], [retry])).toEqual([retry]);
+  });
+
   it("finds the latest failed render job", () => {
     const project = fixtureProject();
     expect(latestFailedRenderJob(project)).toMatchInlineSnapshot(`null`);

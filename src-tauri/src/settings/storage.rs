@@ -23,6 +23,22 @@ pub const DISPOSABLE_APP_CACHE_WRITER_IDS: &[&str] = &[];
 
 static STORAGE_MUTATION_COORDINATOR: Mutex<()> = Mutex::new(());
 
+/// Project cleanup must honor the same cross-process ownership as artifact producers.
+/// The global storage lease, when needed by a desktop session, precedes these two locks.
+pub fn acquire_storage_cleanup_project_ownership(
+    project_dir: &Path,
+) -> Result<
+    (
+        crate::project::mutation::SplitProjectArtifactLease,
+        crate::project::mutation::SplitProjectMutationLease,
+    ),
+    String,
+> {
+    let artifacts = crate::project::mutation::acquire_split_project_artifact_lease(project_dir)?;
+    let mutation = crate::project::mutation::acquire_split_project_mutation_lease(project_dir)?;
+    Ok((artifacts, mutation))
+}
+
 /// Process-wide ownership proof for app-managed mutations that may overlap storage cleanup.
 ///
 /// This lock is intentionally non-reentrant. Public writers acquire it once for their full
@@ -500,6 +516,30 @@ where
     F: FnMut(&StorageCleanupProgress) -> Result<(), StorageCleanupError>,
 {
     let mut report = StorageCleanupReport::empty();
+    let _project_ownership = match target {
+        StorageCleanupTarget::ProjectRenderArtifacts { .. } => {
+            let project_dir = active_project_dir.ok_or_else(|| {
+                cleanup_run_failure(
+                    StorageCleanupError::ActiveProjectRequired,
+                    report.clone(),
+                    Vec::new(),
+                )
+            })?;
+            Some(
+                acquire_storage_cleanup_project_ownership(project_dir).map_err(|detail| {
+                    cleanup_run_failure(
+                        StorageCleanupError::TargetUnavailable(
+                            "project artifact ownership".into(),
+                            detail,
+                        ),
+                        report.clone(),
+                        Vec::new(),
+                    )
+                })?,
+            )
+        }
+        StorageCleanupTarget::DisposableAppCache => None,
+    };
     let plan = resolve_cleanup_plan(target, app_cache_root, active_project_dir)
         .map_err(|error| cleanup_run_failure(error, report.clone(), Vec::new()))?;
     let project_generation = match target {
@@ -1680,6 +1720,57 @@ fn volume_free_bytes(_path: &Path) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn cleanup_waits_for_active_project_artifact_ownership() {
+        use std::sync::mpsc;
+        let root = tempfile::tempdir().unwrap();
+        let project = root.path().join("project");
+        let cache = root.path().join("cache");
+        std::fs::create_dir_all(project.join("renders/active")).unwrap();
+        std::fs::create_dir_all(&cache).unwrap();
+        let artifact = project.join("renders/active/output.webm");
+        std::fs::write(&artifact, b"active output").unwrap();
+        let target = super::StorageCleanupTarget::ProjectRenderArtifacts {
+            artifact_ids: vec!["active".into()],
+        };
+        let preview = super::preview_storage_cleanup(&target, &cache, Some(&project)).unwrap();
+        let (owned_tx, owned_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let producer_dir = project.clone();
+        let producer = std::thread::spawn(move || {
+            let _ownership =
+                crate::project::mutation::acquire_split_project_artifact_lease(&producer_dir)
+                    .unwrap();
+            owned_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        owned_rx.recv().unwrap();
+        let (finished_tx, finished_rx) = mpsc::channel();
+        let cleanup = std::thread::spawn(move || {
+            let result = super::run_storage_cleanup(
+                &target,
+                &preview.confirmation_token,
+                &cache,
+                Some(&project),
+                |_| Ok(()),
+            );
+            finished_tx.send(result).unwrap();
+        });
+        let early = finished_rx.recv_timeout(std::time::Duration::from_millis(50));
+        let protected = artifact.is_file();
+        release_tx.send(()).unwrap();
+        producer.join().unwrap();
+        cleanup.join().unwrap();
+        assert!(
+            early.is_err(),
+            "cleanup must wait for the producer's artifact lease"
+        );
+        assert!(
+            protected,
+            "active output must remain while the producer owns it"
+        );
+        assert_eq!(finished_rx.recv().unwrap().unwrap().removed_count, 1);
+    }
     use std::fs;
 
     use super::{

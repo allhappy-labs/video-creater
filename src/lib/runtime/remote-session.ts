@@ -8,6 +8,7 @@ export type RemoteSessionState =
       readonly displayName: string;
       readonly hostLabel: string;
       readonly csrfToken: string;
+      readonly outcomeProtocol?: 1;
     }
   | { readonly kind: "incompatible"; readonly hostProtocolVersion: number }
   | { readonly kind: "unavailable" }
@@ -25,6 +26,7 @@ interface SessionPayload {
   readonly csrfToken?: unknown;
   readonly protocolVersion?: unknown;
   readonly hostLabel?: unknown;
+  readonly outcomeProtocol?: unknown;
 }
 
 export interface RemoteDeviceSession {
@@ -161,5 +163,6 @@ function connectedState(payload: SessionPayload): RemoteSessionState {
       ? payload.hostLabel
       : "Video Creater host",
     csrfToken: payload.csrfToken,
+    ...(payload.outcomeProtocol === 1 ? { outcomeProtocol: 1 as const } : {}),
   };
 }

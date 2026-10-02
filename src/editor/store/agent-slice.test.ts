@@ -12,7 +12,7 @@ import type {
   VideoProject,
 } from "@/lib/project";
 import { backendRequest } from "@/lib/runtime/backend-client";
-import { BackendOperationError, BackendUnavailableError } from "@/lib/runtime/backend-transport";
+import { BackendOperationError, BackendUnavailableError, RemoteOperationError } from "@/lib/runtime/backend-transport";
 import { fixtureItem, fixtureProject } from "@/test-utils/editor-fixtures";
 import type { AgentAssistantMessage } from "./agent-slice";
 import { createEditorStore, type EditorStore } from "./editor-store";
@@ -262,7 +262,7 @@ describe("agent slice", () => {
       const { backend, store } = setup({
         [startCommand]: () => generationTurn(backend, 2),
         run_generate_media_in_process: () => new Promise((resolve) => runs.push(() => resolve(backend.project))),
-        load_split_project_from_folder: () => backend.project,
+        read_project_snapshot_from_split_project_folder: () => backend.project,
       });
       await store.getState().submitAgentPrompt("Generate two lab shots");
       expect(latestReply(store).status).toBe("awaitingReview");
@@ -284,7 +284,7 @@ describe("agent slice", () => {
       const { backend, store } = setup({
         [startCommand]: () => generationTurn(backend, 1),
         run_generate_media_in_process: () => Promise.reject(reason),
-        load_split_project_from_folder: () => backend.project,
+        read_project_snapshot_from_split_project_folder: () => backend.project,
       });
       await store.getState().submitAgentPrompt("Generate a lab shot");
 
@@ -495,9 +495,53 @@ describe("agent slice", () => {
       expect(latestReply(store).status).toBe("applied");
       expect(store.getState().agentConversation.status).toBe("applied");
     });
+
+    it("retains an unconfirmed proposal without retrying it after canonical reconciliation", async () => {
+      const { backend, store } = setup();
+      const apply = vi.mocked(backendRequest).getMockImplementation();
+      vi.mocked(backendRequest).mockImplementation(async (command, input) => {
+        const result = await apply?.(command, input);
+        if (command === applyCommand) throw new RemoteOperationError(command, "outcome_unknown", "This edit may have completed. Refresh the project.", "lost-apply", "rpc", "unknown");
+        return result;
+      });
+      await expect(store.getState().submitAgentPrompt("Fade the opening clip")).resolves.toBe(false);
+      const reply = latestReply(store);
+      expect(reply.failure).toMatchObject({ kind: "outcomeUnknown", retryable: false });
+      expect(reply.card?.proposal).toBeDefined();
+      expect(reply.card?.result).toBeNull();
+      expect(store.getState().agentConversation).toMatchObject({ failure: { kind: "outcomeUnknown", retry: null } });
+      await store.getState().installReconciledProject(backend.project);
+      await expect(store.getState().retryAgentTurn(reply.id)).resolves.toBe(false);
+      expect(calls(applyCommand)).toHaveLength(1);
+    });
+
+    it("does not resubmit an agent turn whose response was lost", async () => {
+      const { store } = setup({ [startCommand]: () => { throw new RemoteOperationError(startCommand, "outcome_unknown", "This turn may have completed. Refresh the project.", "lost-turn", "rpc", "unknown"); } });
+      await store.getState().submitAgentPrompt("Fade the opening clip");
+      const reply = latestReply(store);
+      expect(reply.failure).toMatchObject({ kind: "outcomeUnknown", retryable: false });
+      await expect(store.getState().retryAgentTurn(reply.id)).resolves.toBe(false);
+      expect(calls(startCommand)).toHaveLength(1);
+    });
   });
 
   describe("undo", () => {
+    it("disables retry for an unconfirmed agent undo", async () => {
+      const { backend, store } = setup();
+      await store.getState().submitAgentPrompt("Fade the opening clip");
+      const reply = latestReply(store);
+      const apply = vi.mocked(backendRequest).getMockImplementation();
+      vi.mocked(backendRequest).mockImplementation(async (command, input) => {
+        const result = await apply?.(command, input);
+        if (command === undoCommand) throw new RemoteOperationError(command, "outcome_unknown", "This undo may have completed. Refresh the project.", "lost-undo", "rpc", "unknown");
+        return result;
+      });
+      await expect(store.getState().undoAgentEdit(reply.id)).resolves.toBe(false);
+      expect(latestReply(store).card?.undo).toMatchObject({ available: false, pending: false });
+      await store.getState().installReconciledProject(backend.project);
+      await expect(store.getState().undoAgentEdit(reply.id)).resolves.toBe(false);
+      expect(calls(undoCommand)).toHaveLength(1);
+    });
     it("undoes a started generation bundle quietly: removed runs report nothing and queued ones never start", async () => {
       const pending: { fail: (() => void) | null } = { fail: null };
       const { backend, initial, store } = setup({
@@ -507,7 +551,7 @@ describe("agent slice", () => {
           new Promise((_, reject) => {
             pending.fail = () => reject("generated asset reference is missing: agent-shot-1");
           }),
-        load_split_project_from_folder: () => backend.project,
+        read_project_snapshot_from_split_project_folder: () => backend.project,
       });
       await store.getState().submitAgentPrompt("Generate two lab shots");
       await store.getState().approveAgentProposal(latestReply(store).id);
@@ -519,7 +563,7 @@ describe("agent slice", () => {
       expect(store.getState().project.generatedAssets).toEqual(initial.generatedAssets);
       expect(store.getState().project.jobs.map((job) => job.id)).not.toContain("job-agent-shot-1");
       pending.fail?.();
-      await vi.waitFor(() => expect(calls("load_split_project_from_folder").length).toBeGreaterThan(0));
+      await vi.waitFor(() => expect(calls("read_project_snapshot_from_split_project_folder").length).toBeGreaterThan(0));
       await settle();
       expect(store.getState().lastError).toBeNull();
       expect(calls("run_generate_media_in_process")).toHaveLength(1);

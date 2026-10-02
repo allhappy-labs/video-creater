@@ -9,6 +9,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
+import { createServer as createTcpServer } from "node:net";
 
 const defaultOutputDir = "output/playwright/browser-visual-qa";
 const defaultUrl = "http://127.0.0.1:4179";
@@ -234,45 +235,71 @@ filenames with scripts/compare-preview-render-frames.mjs and optional mismatch f
 Pass --url only when intentionally targeting an already-running app.`);
 }
 
-export async function startViteServer(url) {
-  const parsedUrl = new URL(url);
-  const readyPath = join(
-    tmpdir(),
-    `video-creater-vite-${process.pid}-${Date.now()}.ready`,
-  );
-  const child = spawn(process.execPath, [
-    resolve("scripts/vite-visual-qa-server.mjs"),
-    parsedUrl.hostname,
-    parsedUrl.port,
-    readyPath,
-  ], {
-    cwd: process.cwd(),
-    stdio: "inherit",
+async function requireAvailablePort(host, port) {
+  const probe = createTcpServer();
+  await new Promise((resolveProbe, rejectProbe) => {
+    probe.once("error", (error) => rejectProbe(error.code === "EADDRINUSE"
+      ? new Error(`Repository Vite port ${port} is already in use`)
+      : error));
+    probe.listen({ host, port: Number(port), exclusive: true }, () => {
+      probe.close((error) => error ? rejectProbe(error) : resolveProbe());
+    });
   });
-  const exited = new Promise((resolveExit) => {
-    child.once("exit", (code, signal) => resolveExit({ code, signal }));
-  });
-  const deadline = Date.now() + 30_000;
-  while (Date.now() < deadline) {
-    if (existsSync(readyPath)) return { child, exited, readyPath };
-    if (child.exitCode !== null) {
-      throw new Error(`Repository Vite server exited before ready (${child.exitCode})`);
-    }
-    await new Promise((resolveDelay) => setTimeout(resolveDelay, 25));
-  }
-  child.kill("SIGTERM");
-  throw new Error(`Timed out starting repository Vite server at ${url}`);
 }
 
-async function stopViteServer(server) {
+export async function startViteServer(url, {
+  spawnChild = spawn, startupTimeoutMs = 30_000, shutdownTimeoutMs = 5_000,
+} = {}) {
+  const parsedUrl = new URL(url);
+  // Vite still binds with strictPort: another process can win after this cheap probe closes.
+  await requireAvailablePort(parsedUrl.hostname, parsedUrl.port);
+  const readyPath = join(tmpdir(), `video-creater-vite-${process.pid}-${Date.now()}.ready`);
+  const child = spawnChild(process.execPath, [
+    resolve("scripts/vite-visual-qa-server.mjs"), parsedUrl.hostname, parsedUrl.port, readyPath,
+  ], { cwd: process.cwd(), stdio: "inherit" });
+  let spawnError;
+  child.once("error", (error) => { spawnError = error; });
+  const exited = new Promise((resolveExit) => {
+    child.once("close", (code, signal) => resolveExit({ code, signal }));
+  });
+  const server = { child, exited, readyPath, shutdownTimeoutMs };
+  const deadline = Date.now() + startupTimeoutMs;
+  try {
+    while (Date.now() < deadline) {
+      if (spawnError) throw spawnError;
+      if (child.exitCode !== null || child.signalCode !== null) {
+        throw new Error(`Repository Vite server exited before ready (${child.exitCode ?? child.signalCode})`);
+      }
+      if (existsSync(readyPath)) return server;
+      await Promise.race([exited, new Promise((resolveDelay) => setTimeout(resolveDelay, 25))]);
+    }
+    throw new Error(`Timed out starting repository Vite server at ${url}`);
+  } catch (error) {
+    await stopViteServer(server);
+    throw error;
+  }
+}
+
+export async function stopViteServer(server) {
   if (!server) return;
   if (existsSync(server.readyPath)) unlinkSync(server.readyPath);
-  if (server.child.exitCode === null) server.child.kill("SIGTERM");
-  await Promise.race([
-    server.exited,
-    new Promise((resolveDelay) => setTimeout(resolveDelay, 5_000)),
-  ]);
-  if (server.child.exitCode === null) server.child.kill("SIGKILL");
+  if (server.child.exitCode === null && server.child.signalCode === null) server.child.kill("SIGTERM");
+  let timer;
+  let closed = false;
+  try {
+    await Promise.race([
+      server.exited.then(() => { closed = true; }),
+      new Promise((resolveDelay) => { timer = setTimeout(resolveDelay, server.shutdownTimeoutMs ?? 5_000); }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+  if (!closed) {
+    server.child.kill("SIGKILL");
+    await server.exited;
+  }
+  // A starting child may have published readiness while termination was in flight.
+  if (existsSync(server.readyPath)) unlinkSync(server.readyPath);
 }
 
 function resolvePwcli() {
@@ -851,7 +878,6 @@ async function main() {
   }
   const viteServer = options.manageViteServer ? await startViteServer(options.url) : null;
 
-  mkdirSync(outDir, { recursive: true });
   const runPwcli = createPwcli(pwcli, options.session);
   let localSessionOpen = false;
   const closeLocalSession = () => {
@@ -872,38 +898,38 @@ async function main() {
     if (viteServer?.child.exitCode === null) viteServer.child.kill("SIGTERM");
     if (viteServer && existsSync(viteServer.readyPath)) unlinkSync(viteServer.readyPath);
   });
-  if (pwcli.local) {
-    process.once("SIGINT", () => {
-      void cleanup().finally(() => process.exit(130));
-    });
-    process.once("SIGTERM", () => {
-      void cleanup().finally(() => process.exit(143));
-    });
-  }
-  const screenshots = [];
-  const selectedScenarios = options.only
-    ? selectableVisualQaScenarios.filter((scenario) =>
-        scenario.id === options.only ||
-        `${scenario.surface}:${scenario.state ?? ""}:${scenario.viewport}` === options.only ||
-        `${scenario.surface}:${scenario.state ?? ""}` === options.only ||
-        scenario.surface === options.only,
-      )
-    : visualQaScenarios;
+  process.once("SIGINT", () => {
+    void cleanup().finally(() => process.exit(130));
+  });
+  process.once("SIGTERM", () => {
+    void cleanup().finally(() => process.exit(143));
+  });
+  try {
+    mkdirSync(outDir, { recursive: true });
+    const screenshots = [];
+    const selectedScenarios = options.only
+      ? selectableVisualQaScenarios.filter((scenario) =>
+          scenario.id === options.only ||
+          `${scenario.surface}:${scenario.state ?? ""}:${scenario.viewport}` === options.only ||
+          `${scenario.surface}:${scenario.state ?? ""}` === options.only ||
+          scenario.surface === options.only,
+        )
+      : visualQaScenarios;
 
-  if (options.only && selectedScenarios.length === 0) {
-    throw new Error(`No visual QA scenario matches --only ${options.only}`);
-  }
-  const bootstrapSettingsFixtureId = selectedScenarios.length > 0 && selectedScenarios.every(
-    (scenario) => scenario.surface === "settings-state",
-  )
-    ? "settings-general-no-project"
-    : null;
+    if (options.only && selectedScenarios.length === 0) {
+      throw new Error(`No visual QA scenario matches --only ${options.only}`);
+    }
+    const bootstrapSettingsFixtureId = selectedScenarios.length > 0 && selectedScenarios.every(
+      (scenario) => scenario.surface === "settings-state",
+    )
+      ? "settings-general-no-project"
+      : null;
 
-  runPwcli(["open", "about:blank"]);
-  localSessionOpen = pwcli.local;
-  runPageCode(
-    runPwcli,
-    `
+    runPwcli(["open", "about:blank"]);
+    localSessionOpen = pwcli.local;
+    runPageCode(
+      runPwcli,
+      `
  const unexpectedBrowserErrors = [];
  page.on("pageerror", (error) => {
    unexpectedBrowserErrors.push(
@@ -939,40 +965,42 @@ async function main() {
  await page.reload();
  await page.waitForSelector("[aria-label='Project home']", { timeout: 10000 });
  `,
-  );
+    );
 
-  for (const scenario of selectedScenarios.filter((item) => item.surface === "home")) {
-    screenshots.push(runScenario(runPwcli, scenario, outDir));
+    for (const scenario of selectedScenarios.filter((item) => item.surface === "home")) {
+      screenshots.push(runScenario(runPwcli, scenario, outDir));
+    }
+
+    for (const scenario of selectedScenarios.filter((item) => item.surface !== "home")) {
+      screenshots.push(runScenario(runPwcli, scenario, outDir));
+    }
+
+    const baselineComparison = runScreenshotBaselineComparison(
+      screenshots,
+      options,
+      outDir,
+    );
+
+    console.log(
+      JSON.stringify(
+        {
+          url: options.url,
+          outDir,
+          session: options.session,
+          screenshots,
+          baselineComparison,
+        },
+        null,
+        2,
+      ),
+    );
+    if (pwcli.local) {
+      runPwcli(["close"]);
+      localSessionOpen = false;
+    }
+  } finally {
+    await cleanup();
   }
-
-  for (const scenario of selectedScenarios.filter((item) => item.surface !== "home")) {
-    screenshots.push(runScenario(runPwcli, scenario, outDir));
-  }
-
-  const baselineComparison = runScreenshotBaselineComparison(
-    screenshots,
-    options,
-    outDir,
-  );
-
-  console.log(
-    JSON.stringify(
-      {
-        url: options.url,
-        outDir,
-        session: options.session,
-        screenshots,
-        baselineComparison,
-      },
-      null,
-    2,
-    ),
-  );
-  if (pwcli.local) {
-    runPwcli(["close"]);
-    localSessionOpen = false;
-  }
-  await stopViteServer(viteServer);
 }
 
 const isDirectRun =

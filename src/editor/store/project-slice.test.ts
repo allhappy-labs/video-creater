@@ -41,6 +41,7 @@ describe("project slice", () => {
     expect(backendRequest).toHaveBeenCalledWith("apply_project_actions_to_split_project_folder", {
       projectDir: "/p",
       actions: [opacityAction(project)],
+      expectedRevision: 3,
     });
     expect(result).toEqual(saved);
     expect(store.getState().project).toEqual(saved);
@@ -110,6 +111,7 @@ describe("project slice", () => {
       projectDir: "/p",
       project,
       expectedRevision: 4,
+      activateProject: false,
     });
     expect(store.getState().project).toEqual(restored);
     expect(store.getState().canRedo()).toBe(true);
@@ -119,6 +121,7 @@ describe("project slice", () => {
       projectDir: "/p",
       project: edited,
       expectedRevision: 5,
+      activateProject: false,
     });
     expect(store.getState().project).toEqual(redone);
     expect(store.getState().canRedo()).toBe(false);
@@ -132,6 +135,98 @@ describe("project slice", () => {
       await store.getState().applyActions([opacityAction(store.getState().project, (index % 10) / 10)]);
     }
     expect(store.getState().history.past).toHaveLength(100);
+  });
+
+  describe("canonical reconciliation", () => {
+    it("keeps an acknowledged edit when an older snapshot waits behind its write", async () => {
+      const project = splitProject();
+      const edited = { ...project, contentRevision: 4, name: "acknowledged edit" };
+      let resolveWrite: (value: unknown) => void = () => undefined;
+      backendRequest.mockImplementationOnce(() => new Promise((resolve) => { resolveWrite = resolve; }));
+      const store = createEditorStore({ projectDir: "/p", project });
+
+      const write = store.getState().applyActions([opacityAction(project)]);
+      const reconciliation = store.getState().installReconciledProject(project);
+      await flushAsyncWork();
+      resolveWrite({ project: edited });
+      await write;
+      const history = store.getState().history;
+      await reconciliation;
+
+      expect(store.getState().project).toBe(edited);
+      expect(store.getState().history).toBe(history);
+      expect(store.getState().saveStatus).toBe("saved");
+    });
+
+    it("preserves redo history when a newer canonical snapshot is already installed", async () => {
+      const project = splitProject();
+      const edited = { ...project, contentRevision: 4, name: "edited" };
+      const restored = { ...project, contentRevision: 5 };
+      backendRequest.mockResolvedValueOnce({ project: edited }).mockResolvedValueOnce({ project: restored });
+      const store = createEditorStore({ projectDir: "/p", project });
+      await store.getState().applyActions([opacityAction(project)]);
+      await store.getState().undo();
+      const history = store.getState().history;
+      expect(store.getState().canRedo()).toBe(true);
+
+      await store.getState().installReconciledProject(edited);
+
+      expect(store.getState().project).toBe(restored);
+      expect(store.getState().history).toBe(history);
+      expect(store.getState().canRedo()).toBe(true);
+    });
+
+    it("rejects a snapshot for a different project without changing the editor", async () => {
+      const project = splitProject();
+      const store = createEditorStore({ projectDir: "/p", project });
+      const state = store.getState();
+
+      await expect(store.getState().installReconciledProject({ ...project, id: "replacement", contentRevision: 9 })).rejects.toThrow("different project");
+
+      expect(store.getState()).toBe(state);
+    });
+
+    it.each(["completed", "cancelled"] as const)("keeps %s worker state over an older snapshot at the same edit revision", async (status) => {
+      const project = splitProject();
+      const job: ProjectJobSummary = {
+        id: "admitted-render", kind: "export_media", status,
+        updatedAt: "2026-10-01T12:00:02Z",
+        workflow: { workflowId: "render", runId: "attempt-1", workflowType: "render", taskQueue: "render", activityTypes: [] },
+      };
+      const current = { ...project, jobs: [job] };
+      // The native renderer stamps all transitions with the admission's updatedAt.
+      const older = { ...project, jobs: [{ ...job, status: "queued" as const }] };
+      const store = createEditorStore({ projectDir: "/p", project: current });
+
+      await store.getState().installReconciledProject(older);
+
+      expect(store.getState().project.jobs).toEqual([job]);
+      expect(store.getState().project.contentRevision).toBe(project.contentRevision);
+      expect(store.getState().project.timeline).toBe(current.timeline);
+    });
+
+    it.each([0, 1])("preserves redo only when reconciliation has no new content revision (+%s)", async (revisionIncrease) => {
+      const project = splitProject();
+      const edited = { ...project, contentRevision: 4, name: "edited" };
+      const restored = { ...project, contentRevision: 5 };
+      backendRequest.mockResolvedValueOnce({ project: edited }).mockResolvedValueOnce({ project: restored });
+      const store = createEditorStore({ projectDir: "/p", project });
+      await store.getState().applyActions([opacityAction(project)]);
+      await store.getState().undo();
+      const history = store.getState().history;
+      const snapshot = {
+        ...restored, contentRevision: 5 + revisionIncrease,
+        name: revisionIncrease ? "new canonical content" : restored.name,
+      };
+
+      await store.getState().installReconciledProject(snapshot);
+
+      expect(store.getState().project.name).toBe(snapshot.name);
+      expect(store.getState().project.contentRevision).toBe(snapshot.contentRevision);
+      expect(store.getState().canRedo()).toBe(revisionIncrease === 0);
+      if (revisionIncrease === 0) expect(store.getState().history).toBe(history);
+      else expect(store.getState().project).toBe(snapshot);
+    });
   });
 
   it("serializes concurrent writes so each uses the latest project", async () => {

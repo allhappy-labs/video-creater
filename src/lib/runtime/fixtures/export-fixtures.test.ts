@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { exportChoiceOptions, defaultExportChoices } from "@/lib/export/export-plan";
 import { taskRecords } from "@/lib/jobs/task-records";
-import type { ExportProfileAvailability, JobProgressSnapshot, NleXmlExportCommandResult, ProjectMediaRenderResult, VideoProject } from "@/lib/project";
+import type { ExportProfileAvailability, JobProgressSnapshot, NleXmlExportCommandResult, ProjectMediaRenderResult, MediaRenderAdmission, MediaRenderAttempt, VideoProject } from "@/lib/project";
 import { createSampleProject } from "@/lib/sample-project";
 import { exportFixtureOperations, exportFixtureRenderPolls } from "./export-fixtures";
 import { createFixtureProjectStore } from "./fixture-project-store";
@@ -44,6 +44,7 @@ async function settled(promise: Promise<unknown>): Promise<boolean> {
 
 describe("export fixture operations", () => {
   afterEach(() => {
+    vi.useRealTimers();
     delete window.__EDITOR_FIXTURE_REVEALS__;
   });
 
@@ -165,6 +166,42 @@ describe("export fixture operations", () => {
     expect(project.jobs.find((job) => job.id === "export-mp4H264-b")?.status).toBe("cancelled");
     const loaded = await request<VideoProject>("load_split_project_from_folder", { projectDir });
     expect(loaded.renderReports.some((report) => report.id === "export-mp4H264-b")).toBe(false);
+  });
+
+  it("admits once, replays the same attempt, and preserves an edit while its result is polled", async () => {
+    vi.useFakeTimers();
+    const request = operations();
+    const project = await openSample(request);
+    const input = { ...renderInput("admitted"), admissionProtocol: 1, expectedRevision: project.contentRevision };
+    const admitted = await request<MediaRenderAdmission>("render_media_to_split_project_folder", input);
+    expect(admitted).toMatchObject({ admissionProtocol: 1, sourceRevision: project.contentRevision, jobId: "admitted" });
+    expect(await request("render_media_to_split_project_folder", input)).toEqual(admitted);
+    await request("save_split_project_to_folder", { projectDir, expectedRevision: admitted.project.contentRevision, project: { ...admitted.project, name: "Edit during render", timeline: { ...admitted.project.timeline, durationSeconds: 16 } } });
+    const outcomes: MediaRenderAttempt[] = [];
+    // Extra status readers cannot make the worker finish faster.
+    for (let poll = 0; poll < 10; poll += 1) expect(await request("load_render_attempt_in_split_project_folder", { projectDir, jobId: input.jobId, attemptId: input.attemptId })).toEqual({ status: "pending" });
+    for (let poll = 0; poll < exportFixtureRenderPolls; poll += 1) {
+      vi.advanceTimersByTime(1_000);
+      outcomes.push(await request("load_render_attempt_in_split_project_folder", { projectDir, jobId: input.jobId, attemptId: input.attemptId }));
+    }
+    expect(outcomes.map((outcome) => outcome.status)).toEqual(["pending", "pending", "completed"]);
+    const completed = outcomes.at(-1);
+    if (completed?.status !== "completed") throw new Error("render did not complete");
+    expect(completed.result.project.name).toBe("Edit during render");
+    expect(completed.result.projectRenderReport.durationSeconds).toBe(project.timeline.durationSeconds);
+    expect(completed.result.project.jobs.filter((job) => job.id === "admitted")).toHaveLength(1);
+  });
+
+  it("rejects stale admission and reused identities without adding another job", async () => {
+    const request = operations();
+    const project = await openSample(request);
+    const input = { ...renderInput("guarded"), admissionProtocol: 1, expectedRevision: project.contentRevision };
+    await expect(request("render_media_to_split_project_folder", { ...input, expectedRevision: 0 })).rejects.toThrow("revision conflict");
+    await request("render_media_to_split_project_folder", input);
+    await expect(request("render_media_to_split_project_folder", { ...input, width: 1280 })).rejects.toThrow("different inputs");
+    const { project: cancelled } = await request<{ project: VideoProject }>("cancel_render_job_in_split_project_folder", { projectDir, jobId: input.jobId, attemptId: input.attemptId, updatedAt: input.updatedAt });
+    expect(cancelled.jobs.filter((job) => job.id === input.jobId)).toHaveLength(1);
+    expect(await request("load_render_attempt_in_split_project_folder", { projectDir, jobId: input.jobId, attemptId: input.attemptId })).toMatchObject({ status: "failed", message: "The render was cancelled." });
   });
 
   it("records XML and project package exports as completed tasks with revealable artifacts", async () => {

@@ -2,6 +2,8 @@ import { Film, Image as ImageIcon, Sparkles } from "lucide-react";
 import { useState } from "react";
 import { mediaContentKind } from "@/lib/media/media-filters";
 import { previewUrlForMedia } from "@/lib/media/preview-source";
+import { useMediaReadiness } from "@/lib/media/use-media-readiness";
+import { refreshRemoteMediaUrl } from "@/lib/runtime/adapters/remote-resource-cache";
 import type { MediaAsset } from "@/lib/project";
 
 /** Legacy deterministic waveform: 18 bars seeded from the id and duration. */
@@ -17,9 +19,11 @@ function waveformBars(media: MediaAsset): number[] {
  * waveform for audio, and a kind glyph otherwise (or after a load error).
  */
 export function MediaThumbnail({ media, projectDir }: { readonly media: MediaAsset; readonly projectDir: string }) {
-  const [failed, setFailed] = useState(false);
+  useMediaReadiness(projectDir);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const kind = mediaContentKind(media);
-  const url = failed ? null : previewUrlForMedia(projectDir, media.relativePath);
+  const previewUrl = previewUrlForMedia(projectDir, media.relativePath);
+  const url = previewUrl === failedUrl ? null : previewUrl;
 
   if (kind === "audio") {
     return (
@@ -38,7 +42,7 @@ export function MediaThumbnail({ media, projectDir }: { readonly media: MediaAss
         playsInline
         preload="metadata"
         src={`${url}#t=0.1`}
-        onError={() => setFailed(true)}
+        onError={() => { setFailedUrl(url); refreshRemoteMediaUrl(url); }}
         className="pointer-events-none absolute inset-0 h-full w-full bg-background object-cover"
       />
     );
@@ -49,7 +53,7 @@ export function MediaThumbnail({ media, projectDir }: { readonly media: MediaAss
         alt=""
         draggable={false}
         src={url}
-        onError={() => setFailed(true)}
+        onError={() => { setFailedUrl(url); refreshRemoteMediaUrl(url); }}
         className="pointer-events-none absolute inset-0 h-full w-full bg-background object-cover"
       />
     );

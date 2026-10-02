@@ -143,6 +143,14 @@ describe("conversationReducer", () => {
     expect(conversationReducer(initialConversationState, { type: "retry" })).toBe(initialConversationState);
   });
 
+  it("retains an unknown apply outcome without an apply retry", () => {
+    const applying = conversationReducer(validating, { type: "prepared", riskLevel: "safe", autoApplySafe: true });
+    const unknown = conversationReducer(applying, { type: "failed", kind: "outcomeUnknown", message: "The edit may have completed." });
+    expect(unknown).toMatchObject({ status: "failed", turn, failure: { kind: "outcomeUnknown", retry: null } });
+    expect(conversationStatusLabel(unknown)).toBe("Edit unconfirmed");
+    expect(conversationReducer(unknown, { type: "retry" })).toBe(unknown);
+  });
+
   it("undo success produces undone and the status reads Undone", () => {
     const applied = run([{ type: "prepared", riskLevel: "safe", autoApplySafe: true }, { type: "applied" }], validating);
     const undone = conversationReducer(applied, { type: "undone" });

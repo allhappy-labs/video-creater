@@ -40,6 +40,60 @@ fn registry_allows_only_remote_inventory_operations() {
 }
 
 #[test]
+fn snapshot_and_attempt_reads_are_registered_but_recovery_requires_write_ownership() {
+    let registry = RpcRegistry::from_inventory();
+    let reader = BTreeSet::from([AuthorizationScope::Session, AuthorizationScope::ProjectRead]);
+    let mut request = RpcEnvelope {
+        request_id: "request-recovery-contract".into(),
+        operation: "read_project_snapshot_from_split_project_folder".into(),
+        project_id: Some("project-1".into()),
+        expected_revision: None,
+        editor_lease_token: None,
+        payload: json!({}),
+    };
+    registry.validate(&request, &reader, 512).unwrap();
+    request.operation = "load_render_attempt_in_split_project_folder".into();
+    registry.validate(&request, &reader, 512).unwrap();
+    request.operation = "recover_render_attempt_in_split_project_folder".into();
+    assert_eq!(
+        registry.validate(&request, &reader, 512),
+        Err(RegistryError::Forbidden)
+    );
+    assert_eq!(
+        registry.validate(&request, &project_writer(), 512),
+        Err(RegistryError::EditorLeaseRequired)
+    );
+    request.editor_lease_token = Some("lease-1".into());
+    registry.validate(&request, &project_writer(), 512).unwrap();
+}
+
+#[test]
+fn remote_effect_catalog_matches_the_desktop_payload_without_editor_ownership() {
+    let dispatcher = Arc::new(video_creater_lib::web_host::dispatcher::HostDispatcher::default());
+    let engine = RpcEngine::new(dispatcher);
+    let body = serde_json::to_vec(&RpcEnvelope {
+        request_id: "request-effects-contract".into(),
+        operation: "list_visual_effect_catalog".into(),
+        project_id: None,
+        expected_revision: None,
+        editor_lease_token: None,
+        payload: json!({}),
+    })
+    .unwrap();
+    let response = engine.execute(
+        "session-1",
+        &BTreeSet::from([AuthorizationScope::Session]),
+        &body,
+        100,
+    );
+    assert!(response.ok, "{:?}", response.error);
+    assert_eq!(
+        response.result,
+        Some(video_creater_lib::effects::effect_catalog_payload())
+    );
+}
+
+#[test]
 fn envelope_validation_enforces_size_scope_project_revision_and_lease() {
     let registry = RpcRegistry::from_inventory();
     let request = RpcEnvelope {
@@ -97,7 +151,7 @@ fn idempotency_replays_same_payload_and_rejects_changed_payload() {
         .unwrap();
     assert_eq!(
         store.check("session-1", "request-1", b"payload-a", 101),
-        IdempotencyDecision::Replay(response)
+        IdempotencyDecision::Replay(Box::new(response))
     );
     assert_eq!(
         store.check("session-1", "request-1", b"payload-b", 101),

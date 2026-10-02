@@ -342,6 +342,518 @@ fn materialize_refuses_an_empty_render() {
 }
 
 #[test]
+fn copy_materialization_preserves_an_unrelated_partial_file() {
+    let project = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let source = rendered_source(project.path(), b"rendered bytes");
+    let unrelated = outside.path().join(".Name.export-mp4H264-1.partial");
+    fs::write(&unrelated, b"keep another producer's staging file").unwrap();
+    let destination =
+        resolve_export_destination(project.path(), &output("Name", Some(outside.path())), "mp4")
+            .unwrap();
+    let result = materialize(&destination, &source, LinkPolicy::CopyOnly).unwrap();
+    assert_eq!(fs::read(result.absolute_path).unwrap(), b"rendered bytes");
+    assert_eq!(
+        fs::read(unrelated).expect("unrelated staging must remain"),
+        b"keep another producer's staging file"
+    );
+}
+
+#[test]
+fn prepared_copy_is_hidden_and_drop_removes_only_its_owned_stage() {
+    let project = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let source = rendered_source(project.path(), b"rendered bytes");
+    let destination =
+        resolve_export_destination(project.path(), &output("Name", Some(outside.path())), "mp4")
+            .unwrap();
+    let prepared = prepare_export_output(ExportMaterialization {
+        destination: &destination,
+        source: &source,
+        job_id: "same-job",
+        link_policy: LinkPolicy::CopyOnly,
+    })
+    .unwrap();
+    assert!(!outside.path().join("Name.mp4").exists());
+    assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 1);
+    drop(prepared);
+    assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn prepared_drop_cleans_the_original_directory_after_parent_replacement() {
+    let project = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let chosen = outside.path().join("chosen");
+    let moved = outside.path().join("moved");
+    fs::create_dir(&chosen).unwrap();
+    let source = rendered_source(project.path(), b"rendered bytes");
+    let destination =
+        resolve_export_destination(project.path(), &output("Name", Some(&chosen)), "mp4").unwrap();
+    let prepared = prepare_export_output(ExportMaterialization {
+        destination: &destination,
+        source: &source,
+        job_id: "same-job",
+        link_policy: LinkPolicy::CopyOnly,
+    })
+    .unwrap();
+    fs::rename(&chosen, &moved).unwrap();
+    fs::create_dir(&chosen).unwrap();
+    fs::write(chosen.join("user.mp4"), b"keep replacement").unwrap();
+    drop(prepared);
+    assert_eq!(
+        fs::read(chosen.join("user.mp4")).unwrap(),
+        b"keep replacement"
+    );
+    assert_eq!(
+        fs::read_dir(&moved).unwrap().count(),
+        0,
+        "owned stages in a moved parent must be cleaned through the retained directory descriptor"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+#[ignore = "child helper invoked by interrupted_stage_is_recovered_on_the_next_prepare"]
+fn interrupted_stage_child() {
+    let Some(root) = std::env::var_os("VIDEO_CREATER_INTERRUPTED_EXPORT_TEST") else {
+        return;
+    };
+    let root = PathBuf::from(root);
+    let project = root.join("project");
+    let outside = root.join("outside");
+    let source = rendered_source(&project, b"interrupted render bytes");
+    let destination =
+        resolve_export_destination(&project, &output("Name", Some(&outside)), "mp4").unwrap();
+    let _prepared = prepare_export_output(ExportMaterialization {
+        destination: &destination,
+        source: &source,
+        job_id: "interrupted-job",
+        link_policy: LinkPolicy::CopyOnly,
+    })
+    .unwrap();
+    if std::env::var_os("VIDEO_CREATER_HOLD_EXPORT_TEST").is_some() {
+        fs::write(root.join("ready"), b"ready").unwrap();
+        for _ in 0..1000 {
+            if root.join("release").exists() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert!(
+            root.join("release").exists(),
+            "parent did not release child stage"
+        );
+    }
+    // A normal destructor would hide the restart case. Exit releases OS locks but
+    // deliberately skips Rust cleanup, just as an interrupted worker does.
+    std::process::exit(0);
+}
+
+#[cfg(unix)]
+#[test]
+fn interrupted_stage_is_recovered_on_the_next_prepare() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().join("project");
+    let outside = root.path().join("outside");
+    fs::create_dir(&project).unwrap();
+    fs::create_dir(&outside).unwrap();
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "project::export_destination::tests::interrupted_stage_child",
+            "--ignored",
+        ])
+        .env("VIDEO_CREATER_INTERRUPTED_EXPORT_TEST", root.path())
+        .status()
+        .unwrap();
+    assert!(status.success());
+    assert_eq!(fs::read_dir(&outside).unwrap().count(), 1);
+    let source = rendered_source(&project, b"next render bytes");
+    let destination =
+        resolve_export_destination(&project, &output("Name", Some(&outside)), "mp4").unwrap();
+    let prepared = prepare_export_output(ExportMaterialization {
+        destination: &destination,
+        source: &source,
+        job_id: "next-job",
+        link_policy: LinkPolicy::CopyOnly,
+    })
+    .unwrap();
+    assert_eq!(
+        fs::read_dir(&outside).unwrap().count(),
+        1,
+        "a dead worker's owned stage must be recovered, leaving only the live stage"
+    );
+    drop(prepared);
+    assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn interrupted_stage_recovery_preserves_a_replacement_payload() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().join("project");
+    let outside = root.path().join("outside");
+    fs::create_dir(&project).unwrap();
+    fs::create_dir(&outside).unwrap();
+    let status = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "project::export_destination::tests::interrupted_stage_child",
+            "--ignored",
+        ])
+        .env("VIDEO_CREATER_INTERRUPTED_EXPORT_TEST", root.path())
+        .status()
+        .unwrap();
+    assert!(status.success());
+    let stage = fs::read_dir(&outside)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let replacement = root.path().join("replacement");
+    fs::write(&replacement, b"keep replacement bytes").unwrap();
+    fs::rename(&replacement, stage.join("output")).unwrap();
+    let source = rendered_source(&project, b"next render bytes");
+    let destination =
+        resolve_export_destination(&project, &output("Name", Some(&outside)), "mp4").unwrap();
+    let prepared = prepare_export_output(ExportMaterialization {
+        destination: &destination,
+        source: &source,
+        job_id: "next-job",
+        link_policy: LinkPolicy::CopyOnly,
+    })
+    .unwrap();
+    drop(prepared);
+    assert_eq!(
+        fs::read(stage.join("output")).unwrap(),
+        b"keep replacement bytes"
+    );
+    assert!(
+        stage.join("owner.json").exists(),
+        "mismatching ownership must remain forensic evidence"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn recovery_excludes_a_stage_locked_by_another_process() {
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().join("project");
+    let outside = root.path().join("outside");
+    fs::create_dir(&project).unwrap();
+    fs::create_dir(&outside).unwrap();
+    let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "project::export_destination::tests::interrupted_stage_child",
+            "--ignored",
+        ])
+        .env("VIDEO_CREATER_INTERRUPTED_EXPORT_TEST", root.path())
+        .env("VIDEO_CREATER_HOLD_EXPORT_TEST", "1")
+        .spawn()
+        .unwrap();
+    for _ in 0..500 {
+        if root.path().join("ready").exists() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(
+        root.path().join("ready").exists(),
+        "child did not initialize stage"
+    );
+    let source = rendered_source(&project, b"next render bytes");
+    let destination =
+        resolve_export_destination(&project, &output("Name", Some(&outside)), "mp4").unwrap();
+    let prepared = prepare_export_output(ExportMaterialization {
+        destination: &destination,
+        source: &source,
+        job_id: "next-job",
+        link_policy: LinkPolicy::CopyOnly,
+    })
+    .unwrap();
+    assert_eq!(
+        fs::read_dir(&outside).unwrap().count(),
+        2,
+        "active child stage must survive cleanup"
+    );
+    drop(prepared);
+    assert_eq!(fs::read_dir(&outside).unwrap().count(), 1);
+    fs::write(root.path().join("release"), b"release").unwrap();
+    assert!(child.wait().unwrap().success());
+    let prepared = prepare_export_output(ExportMaterialization {
+        destination: &destination,
+        source: &source,
+        job_id: "after-child",
+        link_policy: LinkPolicy::CopyOnly,
+    })
+    .unwrap();
+    assert_eq!(
+        fs::read_dir(&outside).unwrap().count(),
+        1,
+        "dead child stage should now recover"
+    );
+    drop(prepared);
+    assert_eq!(fs::read_dir(&outside).unwrap().count(), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn publication_owner_rolls_back_in_the_original_directory_after_a_parent_swap() {
+    let project = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let chosen = root.path().join("chosen");
+    let moved = root.path().join("moved");
+    fs::create_dir(&chosen).unwrap();
+    let source = rendered_source(project.path(), b"rendered bytes");
+    let destination =
+        resolve_export_destination(project.path(), &output("Name", Some(&chosen)), "mp4").unwrap();
+    let prepared = prepare_export_output(ExportMaterialization {
+        destination: &destination,
+        source: &source,
+        job_id: "same-job",
+        link_policy: LinkPolicy::CopyOnly,
+    })
+    .unwrap();
+    let owner = prepared.publication_owner().unwrap();
+    let published = prepared.publish().unwrap();
+    fs::rename(&chosen, &moved).unwrap();
+    fs::create_dir(&chosen).unwrap();
+    fs::write(chosen.join("Name.mp4"), b"keep replacement bytes").unwrap();
+    owner.rollback(&published.absolute_path).unwrap();
+    assert!(!moved.join("Name.mp4").exists());
+    assert_eq!(
+        fs::read(chosen.join("Name.mp4")).unwrap(),
+        b"keep replacement bytes"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn publication_owner_rejects_another_name_even_when_it_links_the_same_inode() {
+    let project = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let source = rendered_source(project.path(), b"rendered bytes");
+    let destination =
+        resolve_export_destination(project.path(), &output("Name", Some(outside.path())), "mp4")
+            .unwrap();
+    let prepared = prepare_export_output(ExportMaterialization {
+        destination: &destination,
+        source: &source,
+        job_id: "same-job",
+        link_policy: LinkPolicy::CopyOnly,
+    })
+    .unwrap();
+    let owner = prepared.publication_owner().unwrap();
+    let published = prepared.publish().unwrap();
+    let user_alias = outside.path().join("Name (2).mp4");
+    fs::hard_link(&published.absolute_path, &user_alias).unwrap();
+    assert!(owner.rollback(&user_alias).is_err());
+    assert_eq!(fs::read(&user_alias).unwrap(), b"rendered bytes");
+    assert!(published.absolute_path.exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn publication_boundary_parent_swap_cannot_redirect_output_or_rollback() {
+    let project = tempfile::tempdir().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    let chosen = root.path().join("chosen");
+    let moved = root.path().join("moved");
+    fs::create_dir(&chosen).unwrap();
+    let source = rendered_source(project.path(), b"rendered bytes");
+    let destination =
+        resolve_export_destination(project.path(), &output("Name", Some(&chosen)), "mp4").unwrap();
+    let prepared = prepare_export_output(ExportMaterialization {
+        destination: &destination,
+        source: &source,
+        job_id: "same-job",
+        link_policy: LinkPolicy::CopyOnly,
+    })
+    .unwrap();
+    let result = prepared.publish_with_boundary_hook(&mut |path| {
+        fs::rename(&chosen, &moved).unwrap();
+        fs::create_dir(&chosen).unwrap();
+        fs::write(path, b"keep replacement bytes").unwrap();
+    });
+    assert!(result.is_err());
+    assert_eq!(
+        fs::read(chosen.join("Name.mp4")).unwrap(),
+        b"keep replacement bytes"
+    );
+    assert_eq!(
+        fs::read_dir(&moved).unwrap().count(),
+        0,
+        "publication and cleanup must use the original directory descriptor"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn publication_boundary_stage_swap_links_the_held_inode_and_preserves_replacement() {
+    let project = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let source = rendered_source(project.path(), b"rendered bytes");
+    let destination =
+        resolve_export_destination(project.path(), &output("Name", Some(outside.path())), "mp4")
+            .unwrap();
+    let prepared = prepare_export_output(ExportMaterialization {
+        destination: &destination,
+        source: &source,
+        job_id: "same-job",
+        link_policy: LinkPolicy::CopyOnly,
+    })
+    .unwrap();
+    let stage = fs::read_dir(outside.path())
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let published = prepared
+        .publish_with_boundary_hook(&mut |_| {
+            let replacement = outside.path().join("replacement");
+            fs::write(&replacement, b"keep replacement bytes").unwrap();
+            fs::rename(replacement, stage.join("output")).unwrap();
+        })
+        .unwrap();
+    assert_eq!(
+        fs::read(published.absolute_path).unwrap(),
+        b"rendered bytes"
+    );
+    assert_eq!(
+        fs::read(stage.join("output")).unwrap(),
+        b"keep replacement bytes"
+    );
+}
+
+#[test]
+fn copy_can_be_cancelled_midway_without_publishing_or_leaving_a_stage() {
+    let project = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let source = rendered_source(project.path(), &vec![7; 1024 * 1024]);
+    let destination =
+        resolve_export_destination(project.path(), &output("Name", Some(outside.path())), "mp4")
+            .unwrap();
+    let mut calls = 0;
+    let result = prepare_export_output_cancellable(
+        ExportMaterialization {
+            destination: &destination,
+            source: &source,
+            job_id: "same-job",
+            link_policy: LinkPolicy::CopyOnly,
+        },
+        &mut || {
+            calls += 1;
+            calls < 4
+        },
+    );
+    assert!(matches!(result, Err(ExportDestinationError::Cancelled)));
+    assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn concurrent_prepared_copies_use_distinct_stages_and_publish_numbered_names() {
+    let project = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let source = rendered_source(project.path(), b"rendered bytes");
+    let destination =
+        resolve_export_destination(project.path(), &output("Name", Some(outside.path())), "mp4")
+            .unwrap();
+    let prepare = || {
+        prepare_export_output(ExportMaterialization {
+            destination: &destination,
+            source: &source,
+            job_id: "same-job",
+            link_policy: LinkPolicy::CopyOnly,
+        })
+        .unwrap()
+    };
+    let first = prepare();
+    let second = prepare();
+    assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 2);
+    assert_eq!(
+        first.publish().unwrap().absolute_path,
+        outside.path().join("Name.mp4")
+    );
+    assert_eq!(
+        second.publish().unwrap().absolute_path,
+        outside.path().join("Name (2).mp4")
+    );
+    assert_eq!(fs::read_dir(outside.path()).unwrap().count(), 2);
+}
+
+#[cfg(unix)]
+#[test]
+fn prepared_publication_rejects_a_replaced_parent_without_deleting_replacement_bytes() {
+    let project = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let destination_dir = outside.path().join("chosen");
+    fs::create_dir(&destination_dir).unwrap();
+    let source = rendered_source(project.path(), b"rendered bytes");
+    let destination = resolve_export_destination(
+        project.path(),
+        &output("Name", Some(&destination_dir)),
+        "mp4",
+    )
+    .unwrap();
+    let prepared = prepare_export_output(ExportMaterialization {
+        destination: &destination,
+        source: &source,
+        job_id: "same-job",
+        link_policy: LinkPolicy::CopyOnly,
+    })
+    .unwrap();
+    let stage_name = fs::read_dir(&destination_dir)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .file_name();
+    fs::rename(&destination_dir, outside.path().join("original")).unwrap();
+    fs::create_dir(&destination_dir).unwrap();
+    let replacement = destination_dir.join(stage_name);
+    fs::write(&replacement, b"keep replacement bytes").unwrap();
+    assert!(prepared.publish().is_err());
+    assert_eq!(fs::read(replacement).unwrap(), b"keep replacement bytes");
+    assert!(!destination_dir.join("Name.mp4").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn prepared_publication_rejects_a_replaced_stage_without_deleting_replacement_bytes() {
+    let project = tempfile::tempdir().unwrap();
+    let outside = tempfile::tempdir().unwrap();
+    let source = rendered_source(project.path(), b"rendered bytes");
+    let destination =
+        resolve_export_destination(project.path(), &output("Name", Some(outside.path())), "mp4")
+            .unwrap();
+    let prepared = prepare_export_output(ExportMaterialization {
+        destination: &destination,
+        source: &source,
+        job_id: "same-job",
+        link_policy: LinkPolicy::CopyOnly,
+    })
+    .unwrap();
+    let stage = fs::read_dir(outside.path())
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path()
+        .join("output");
+    let replacement = outside.path().join("replacement");
+    fs::write(&replacement, b"keep replacement bytes").unwrap();
+    fs::rename(replacement, &stage).unwrap();
+    assert!(prepared.publish().is_err());
+    assert_eq!(fs::read(stage).unwrap(), b"keep replacement bytes");
+    assert!(!outside.path().join("Name.mp4").exists());
+}
+
+#[test]
 fn artifact_contracts_match_the_gstreamer_output_profiles() {
     assert_eq!(
         export_artifact_contract(ExportProfile::Mp4H264),

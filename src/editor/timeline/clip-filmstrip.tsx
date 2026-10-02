@@ -1,5 +1,8 @@
+import { refreshRemoteMediaUrl } from "@/lib/runtime/adapters/remote-resource-cache";
 import { useEffect, useRef, useState } from "react";
 import { previewUrlForMedia } from "@/lib/media/preview-source";
+import { useMediaReadiness } from "@/lib/media/use-media-readiness";
+import { BoundedRequestCache } from "@/lib/media/bounded-request-cache";
 import { cacheTimelineFilmstripInSplitProjectFolder, type TimelineFilmstripReport } from "@/lib/project";
 import { isBackendUnavailableError } from "@/lib/runtime/backend-transport";
 import type { TimelineItem } from "@/lib/timeline";
@@ -19,7 +22,7 @@ type FilmstripInput = Parameters<typeof cacheTimelineFilmstripInSplitProjectFold
  * clip out of the render window and back never requests it again. Failed requests resolve to
  * `null` (solid fill); only non-connectivity failures are forgotten so a later mount can retry.
  */
-const filmstripRequests = new Map<string, Promise<readonly FilmstripFrame[] | null>>();
+const filmstripRequests = new BoundedRequestCache<TimelineFilmstripReport>(128, 2 * 1024 * 1024, (report) => JSON.stringify(report).length * 2);
 
 /** Frames with a loadable URL, or `null` when none remain. */
 function framesFromReport(projectDir: string, report: TimelineFilmstripReport): readonly FilmstripFrame[] | null {
@@ -30,21 +33,17 @@ function framesFromReport(projectDir: string, report: TimelineFilmstripReport): 
   return frames.length > 0 ? frames : null;
 }
 
-async function fetchFilmstrip(key: string, input: FilmstripInput): Promise<readonly FilmstripFrame[] | null> {
+async function fetchFilmstrip(input: FilmstripInput): Promise<TimelineFilmstripReport | null> {
   try {
-    return framesFromReport(input.projectDir, await cacheTimelineFilmstripInSplitProjectFolder(input));
+    return await cacheTimelineFilmstripInSplitProjectFolder(input);
   } catch (error) {
-    if (!isBackendUnavailableError(error)) filmstripRequests.delete(key);
-    return null;
+    if (isBackendUnavailableError(error)) return null;
+    throw error;
   }
 }
 
-function loadFilmstrip(key: string, input: FilmstripInput): Promise<readonly FilmstripFrame[] | null> {
-  const cached = filmstripRequests.get(key);
-  if (cached) return cached;
-  const request = fetchFilmstrip(key, input);
-  filmstripRequests.set(key, request);
-  return request;
+function loadFilmstrip(key: string, input: FilmstripInput): Promise<TimelineFilmstripReport | null> {
+  return filmstripRequests.get(key, () => fetchFilmstrip(input));
 }
 
 function usesBackendMedia(projectDir: string): boolean {
@@ -72,7 +71,7 @@ function filmstripRequest(
   const zoomBucket = Math.max(25, Math.round(zoomPercent / 25) * 25);
   const heightBucket = Math.round(height);
   const input = { projectDir, mediaId, sourceIn, sourceOut, speed, zoomBucket, heightBucket, clipPixelWidth: Math.round(width) };
-  const key = [projectDir, item.id, mediaId, sourceIn, sourceOut, speed, zoomBucket, heightBucket].join("|");
+  const key = JSON.stringify([projectDir, item.id, mediaId, sourceIn, sourceOut, speed, zoomBucket, heightBucket, input.clipPixelWidth]);
   return { key, input };
 }
 
@@ -88,6 +87,7 @@ interface ClipFilmstripProps {
  */
 export function ClipFilmstrip({ item, width, height }: ClipFilmstripProps) {
   const projectDir = useEditorStore((state) => state.projectDir);
+  useMediaReadiness(projectDir);
   const zoomPercent = useEditorStore((state) => state.zoomPercent);
   const schemaVersion = useEditorStore((state) => state.project.schemaVersion);
   const imagePath = useEditorStore((state) => {
@@ -99,22 +99,24 @@ export function ClipFilmstrip({ item, width, height }: ClipFilmstripProps) {
   const requestKey = request?.key ?? null;
   const latestInput = useRef(request?.input);
   latestInput.current = request?.input;
-  const [loaded, setLoaded] = useState<{ readonly key: string; readonly frames: readonly FilmstripFrame[] | null } | null>(null);
+  const [loaded, setLoaded] = useState<{ readonly key: string; readonly report: TimelineFilmstripReport | null } | null>(null);
   const [brokenKey, setBrokenKey] = useState<string | null>(null);
 
   useEffect(() => {
     const input = latestInput.current;
     if (!requestKey || !input) return undefined;
     let cancelled = false;
-    void loadFilmstrip(requestKey, input).then((frames) => {
-      if (!cancelled) setLoaded({ key: requestKey, frames });
+    void loadFilmstrip(requestKey, input).then((report) => {
+      if (!cancelled) setLoaded({ key: requestKey, report });
     });
     return () => {
       cancelled = true;
     };
   }, [requestKey]);
 
-  const frames = loaded && loaded.key === requestKey && brokenKey !== requestKey ? loaded.frames : null;
+  const availableFrames = loaded?.report && loaded.key === requestKey ? framesFromReport(projectDir, loaded.report) : null;
+  const frameSetKey = JSON.stringify([requestKey, availableFrames?.map((frame) => frame.url)]);
+  const frames = brokenKey !== frameSetKey ? availableFrames : null;
   if (frames && requestKey) {
     return (
       <div data-testid="clip-filmstrip" data-state="frames" aria-hidden className="pointer-events-none absolute inset-0 flex">
@@ -124,7 +126,7 @@ export function ClipFilmstrip({ item, width, height }: ClipFilmstripProps) {
             alt=""
             draggable={false}
             src={frame.url}
-            onError={() => setBrokenKey(requestKey)}
+            onError={() => { if (!refreshRemoteMediaUrl(frame.url)) setBrokenKey(frameSetKey); }}
             className="h-full min-w-0 flex-1 object-cover"
           />
         ))}

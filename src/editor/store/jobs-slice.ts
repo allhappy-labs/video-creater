@@ -6,7 +6,7 @@ import { taskRecords, workflowServiceUnreachableDetail, type TaskKind, type Task
 import {
   cancelRenderJobInSplitProjectFolder,
   loadJobProgressFromSplitProjectFolder,
-  loadSplitProjectFromFolder,
+  readProjectSnapshotFromSplitProjectFolder,
   reconcileTemporalJobsInSplitProjectFolder,
   type GeneratedAsset,
   type JobProgressSnapshot,
@@ -202,7 +202,7 @@ export function createJobsSlice(init: { readonly projectDir: string; readonly pr
       inFlight = true;
       const { projectDir } = get();
       try {
-        const loaded: unknown = await loadSplitProjectFromFolder({ projectDir });
+        const loaded: unknown = await readProjectSnapshotFromSplitProjectFolder({ projectDir });
         if (enabled && isProject(loaded) && get().projectDir === projectDir) await get().mergeLoadedProject(loaded);
       } catch (error) {
         // Without a backend nothing can be reloaded; the next `startPolling` tries again.

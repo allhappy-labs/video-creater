@@ -12,7 +12,7 @@ vi.mock("@/lib/runtime/backend-client", () => ({ backendRequest: vi.fn(), backen
 type Handler = (input: Record<string, unknown>) => unknown;
 
 const projectDir = "/projects/demo";
-const loadCommand = "load_split_project_from_folder";
+const loadCommand = "read_project_snapshot_from_split_project_folder";
 
 function job(
   id: string,

@@ -31,12 +31,16 @@ use super::identity::{trusted_proxy_identity, ProxyIdentity, ProxyMode};
 use super::pairing::PairingManager;
 use super::project_catalog::ProjectCatalog;
 use super::registry::RpcRegistry;
+use super::request_outcome::RequestOutcomeStore;
 use super::resource_ticket::{
     ResourceAccess, ResourceTicketError, ResourceTicketStore, TicketStatus,
 };
 use super::rpc::{RpcDispatcher, RpcEngine, RpcResponse};
 use super::session::{SessionError, SessionStore};
+#[path = "http_outcomes.rs"]
+mod outcomes;
 use super::upload::{UploadError, UploadStore};
+use outcomes::{acknowledge_outcome, list_outcomes, lookup_outcome};
 
 #[derive(Debug, Clone)]
 pub struct HostHttpConfig {
@@ -63,6 +67,8 @@ struct HostHttpState {
     pairing: PairingManager,
     sessions: SessionStore,
     rpc: RpcEngine,
+    outcomes: Arc<RequestOutcomeStore>,
+    outcome_slots: Arc<tokio::sync::Semaphore>,
     events: Arc<EventHub>,
     uploads: UploadStore,
     projects: ProjectCatalog,
@@ -128,6 +134,8 @@ pub struct PairResponse {
     pub session_id: String,
     pub csrf_token: String,
     pub protocol_version: u32,
+    #[serde(default)]
+    pub outcome_protocol: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -141,6 +149,8 @@ pub struct SessionResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub csrf_token: Option<String>,
     pub protocol_version: u32,
+    #[serde(default)]
+    pub outcome_protocol: u32,
     pub host_label: String,
 }
 
@@ -164,6 +174,13 @@ pub fn host_router(
     uploads
         .cleanup_expired(cleanup_now, 24 * 60 * 60)
         .map_err(|_| "expired upload cleanup failed".to_string())?;
+    let outcomes = Arc::new(
+        RequestOutcomeStore::open(
+            &config.session_file.with_extension("request-outcomes"),
+            cleanup_now,
+        )
+        .map_err(|_| "durable request outcome journal could not be opened".to_string())?,
+    );
     let state = Arc::new(HostHttpState {
         origin: config.public_origin.trim_end_matches('/').to_owned(),
         host_label: config.host_label,
@@ -173,13 +190,16 @@ pub fn host_router(
         } else {
             PairingManager::new(&config.pairing_code, config.issued_at)
         },
-        sessions: SessionStore::load(
+        sessions: SessionStore::load_at(
             config.session_file,
             &config.public_origin,
             30 * 24 * 60 * 60,
+            cleanup_now,
         )
         .map_err(|_| "remote session store could not be opened".to_string())?,
-        rpc: RpcEngine::new(dispatcher),
+        rpc: RpcEngine::with_outcome_store(dispatcher, Arc::clone(&outcomes)),
+        outcomes,
+        outcome_slots: Arc::new(tokio::sync::Semaphore::new(64)),
         events: Arc::new(EventHub::new(1_024, 128)),
         uploads,
         projects: config.project_catalog,
@@ -204,6 +224,12 @@ pub fn host_router(
         .route(
             "/api/v1/rpc",
             post(rpc).layer(DefaultBodyLimit::max(32 * 1024 * 1024)),
+        )
+        .route("/api/v1/request-outcomes", get(list_outcomes))
+        .route("/api/v1/request-outcomes/{request_id}", get(lookup_outcome))
+        .route(
+            "/api/v1/request-outcomes/{request_id}/ack",
+            post(acknowledge_outcome),
         )
         .route("/api/v1/events", get(events))
         .route(
@@ -361,6 +387,7 @@ async fn mint_media_tickets(
         .unwrap_or_default();
     allowed.extend(recorded_render_output_paths(&project_dir));
     let mut urls = BTreeMap::new();
+    let mut expiries = BTreeMap::new();
     for relative_path in request.relative_paths {
         if relative_path.len() > 1_024 || !allowed.contains(&relative_path) {
             return forbidden("media resource is not recorded by this project");
@@ -389,8 +416,12 @@ async fn mint_media_tickets(
             format!("{}/{}", request.project_id, relative_path),
             format!("/api/v1/media/{}", ticket.token),
         );
+        expiries.insert(
+            format!("{}/{}", request.project_id, relative_path),
+            ticket.expires_at,
+        );
     }
-    Json(json!({"urls":urls})).into_response()
+    Json(json!({"urls":urls,"expiresAt":expiries})).into_response()
 }
 
 async fn mint_artifact_ticket(
@@ -917,6 +948,7 @@ async fn pair(
         session_id: issued.session_id,
         csrf_token: issued.csrf_token,
         protocol_version: super::PROTOCOL_VERSION,
+        outcome_protocol: 1,
     })
     .into_response();
     if let Ok(value) = HeaderValue::from_str(&issued.cookie_header) {
@@ -935,6 +967,7 @@ async fn session(State(state): State<Arc<HostHttpState>>, headers: HeaderMap) ->
                 display_name: None,
                 csrf_token: None,
                 protocol_version: super::PROTOCOL_VERSION,
+                outcome_protocol: 1,
                 host_label: state.host_label.clone(),
             }),
         )
@@ -951,6 +984,7 @@ async fn session(State(state): State<Arc<HostHttpState>>, headers: HeaderMap) ->
                     display_name: None,
                     csrf_token: None,
                     protocol_version: super::PROTOCOL_VERSION,
+                    outcome_protocol: 1,
                     host_label: state.host_label.clone(),
                 }),
             )
@@ -967,6 +1001,7 @@ async fn session(State(state): State<Arc<HostHttpState>>, headers: HeaderMap) ->
         display_name: Some(view.display_name),
         csrf_token: Some(csrf_token),
         protocol_version: super::PROTOCOL_VERSION,
+        outcome_protocol: 1,
         host_label: state.host_label.clone(),
     })
     .into_response()
@@ -1018,6 +1053,7 @@ async fn rotate_session(State(state): State<Arc<HostHttpState>>, headers: Header
         "sessionId": issued.session_id,
         "csrfToken": issued.csrf_token,
         "protocolVersion": super::PROTOCOL_VERSION,
+        "outcomeProtocol": 1,
     }))
     .into_response();
     if let Ok(cookie) = HeaderValue::from_str(&issued.cookie_header) {
@@ -1106,8 +1142,14 @@ async fn rpc(State(state): State<Arc<HostHttpState>>, headers: HeaderMap, body: 
         })
     });
     let state_for_rpc = Arc::clone(&state);
+    let principal = session
+        .identity
+        .unwrap_or_else(|| session.session_id.clone());
     let session_id = session.session_id;
     let now = state.now();
+    let understands_outcomes = headers
+        .get("x-video-creater-outcome-protocol")
+        .is_some_and(|value| value == "1");
     let body = body.to_vec();
     let response = tokio::task::spawn_blocking(move || {
         if let Some((request_id, project_id, token, hold_during_operation)) = mutation_lease {
@@ -1115,21 +1157,54 @@ async fn rpc(State(state): State<Arc<HostHttpState>>, headers: HeaderMap, body: 
                 return state_for_rpc
                     .leases
                     .validate_owner(&project_id, &session_id, &token)
-                    .map(|()| state_for_rpc.rpc.execute(&session_id, &scopes, &body, now))
+                    .map(|()| {
+                        state_for_rpc.rpc.execute_for_principal(
+                            &session_id,
+                            &principal,
+                            &scopes,
+                            &body,
+                            now,
+                        )
+                    })
                     .map_err(|_| request_id);
             }
             return state_for_rpc
                 .leases
                 .with_valid_lease(&project_id, &session_id, &token, now, || {
-                    state_for_rpc.rpc.execute(&session_id, &scopes, &body, now)
+                    state_for_rpc.rpc.execute_for_principal(
+                        &session_id,
+                        &principal,
+                        &scopes,
+                        &body,
+                        now,
+                    )
                 })
                 .map_err(|_| request_id);
         }
-        Ok(state_for_rpc.rpc.execute(&session_id, &scopes, &body, now))
+        Ok(state_for_rpc
+            .rpc
+            .execute_for_principal(&session_id, &principal, &scopes, &body, now))
     })
     .await;
     match response {
         Ok(Ok(response)) => {
+            // Older decoders classify unknown RPC codes as definite rejection.
+            // An unreadable response preserves their existing uncertainty fence.
+            if !understands_outcomes
+                && response.error.as_ref().is_some_and(|error| {
+                    matches!(
+                        error.code,
+                        super::rpc::RpcErrorCode::OutcomeUnknown
+                            | super::rpc::RpcErrorCode::OutcomeExpired
+                    )
+                })
+            {
+                return (
+                    StatusCode::BAD_GATEWAY,
+                    "Mutation outcome requires reconciliation with a current client.",
+                )
+                    .into_response();
+            }
             if response.ok {
                 if let Some(envelope) = envelope.as_ref() {
                     if RpcRegistry::from_inventory()

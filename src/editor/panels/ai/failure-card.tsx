@@ -18,6 +18,7 @@ function failureCopy(failure: AgentFailure): string {
       return `Nothing was changed. ${failure.message.trim()}`;
     case "turnFailed":
     case "agentUnavailable":
+    case "outcomeUnknown":
       return failure.message.trim();
   }
 }

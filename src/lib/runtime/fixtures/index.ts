@@ -38,6 +38,7 @@ interface FixtureDomainOptions {
 const folderCoreOperations: ReadonlySet<string> = new Set([
   "save_split_project_to_folder",
   "load_split_project_from_folder",
+  "read_project_snapshot_from_split_project_folder",
   "apply_project_actions_to_split_project_folder",
   "apply_project_action_to_split_project_folder",
 ]);

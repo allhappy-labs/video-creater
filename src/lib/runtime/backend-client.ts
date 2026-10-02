@@ -2,6 +2,7 @@ import {
   BackendOperationError,
   BackendUnavailableError,
   FixtureOperationUnsupportedError,
+  RemoteOperationError,
   type BackendInput,
   type BackendTransport,
   type BackendUnlisten,
@@ -18,7 +19,8 @@ function backendFailure(operation: string, error: unknown): Error {
   if (
     error instanceof BackendUnavailableError ||
     error instanceof FixtureOperationUnsupportedError ||
-    error instanceof BackendOperationError
+    error instanceof BackendOperationError ||
+    error instanceof RemoteOperationError
   ) {
     return error;
   }

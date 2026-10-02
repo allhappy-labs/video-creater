@@ -7,9 +7,9 @@
 //! writes the same `renders/<jobId>/preview-qa/` evidence layout.
 
 use super::{
-    expand_project_nested_timelines_for_render, io_pipeline_error, register_project_render_attempt,
-    render_job_start_actions, render_project_action_error, safe_path_segment,
-    validate_render_project_write_path, PreparedPreviewFrameResult,
+    claim_error_terminal, expand_project_nested_timelines_for_render, io_pipeline_error,
+    register_project_render_attempt, render_job_start_actions, render_project_action_error,
+    safe_path_segment, validate_render_project_write_path, PreparedPreviewFrameResult,
 };
 use crate::precompose::{prepare_project_for_render_cancellable, render_canonical_frame_rgba};
 use crate::project::action::ProjectAction;
@@ -18,7 +18,11 @@ use crate::project::model::{
     RenderReportCheckStatus, RenderReportStatus, RenderReportStreams, TimelineSource, TrackKind,
     VideoProject,
 };
-use crate::project::split::apply_project_actions_to_split_project;
+use crate::project::mutation::acquire_split_project_mutation_lease;
+use crate::project::split::{
+    apply_project_bookkeeping_actions_to_split_project_with_lease, load_split_project,
+    ProjectActionWriteResult,
+};
 use crate::render_pipeline::cancel::RenderCancellationToken;
 use crate::render_pipeline::error::{PipelineError, PipelineErrorCode, PipelineResult};
 use crate::render_pipeline::process::CommandSpec;
@@ -37,6 +41,74 @@ mod graphics;
 const SAMPLER_BACKEND: &str = "rust-canonical-sampler";
 const RENDER_LABEL: &str = "canonical preview";
 
+struct CaptureIdentity {
+    project_id: String,
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+}
+
+impl CaptureIdentity {
+    fn capture(project_dir: &Path, project_id: &str) -> Result<Self, String> {
+        let metadata = std::fs::metadata(project_dir).map_err(|error| error.to_string())?;
+        if !metadata.is_dir() {
+            return Err("canonical preview project is not a directory".into());
+        }
+        #[cfg(unix)]
+        use std::os::unix::fs::MetadataExt;
+        Ok(Self {
+            project_id: project_id.into(),
+            #[cfg(unix)]
+            device: metadata.dev(),
+            #[cfg(unix)]
+            inode: metadata.ino(),
+        })
+    }
+
+    fn persist(
+        &self,
+        project_dir: &Path,
+        job_id: &str,
+        attempt_id: &str,
+        actions: Vec<ProjectAction>,
+        require_active_attempt: bool,
+    ) -> Result<ProjectActionWriteResult, String> {
+        let mutation = acquire_split_project_mutation_lease(project_dir)?;
+        let actual = Self::capture(project_dir, &self.project_id)?;
+        #[cfg(unix)]
+        if (actual.device, actual.inode) != (self.device, self.inode) {
+            return Err("canonical preview project package changed".into());
+        }
+        let current = load_split_project(project_dir).map_err(|error| error.to_string())?;
+        if current.id != actual.project_id {
+            return Err("canonical preview project identity changed".into());
+        }
+        if require_active_attempt
+            && !current.jobs.iter().any(|job| {
+                job.id == job_id
+                    && matches!(
+                        job.status,
+                        JobStatus::Queued | JobStatus::Running | JobStatus::Progress
+                    )
+                    && job
+                        .workflow
+                        .as_ref()
+                        .and_then(|workflow| workflow.run_id.as_deref())
+                        == Some(attempt_id)
+            })
+        {
+            return Err("canonical preview attempt is terminal or superseded".into());
+        }
+        apply_project_bookkeeping_actions_to_split_project_with_lease(
+            project_dir,
+            actions,
+            &mutation,
+        )
+        .map_err(|error| error.to_string())
+    }
+}
+
 /// Linux (non-macOS) canonical capture: the Rust sampler instead of a one-frame native render.
 pub(super) fn capture_canonical_frame_with_sampler(
     project_dir: &Path,
@@ -47,16 +119,27 @@ pub(super) fn capture_canonical_frame_with_sampler(
     updated_at: &str,
     _lease: &StorageMutationLease,
 ) -> PipelineResult<PreparedPreviewFrameResult> {
+    let identity = CaptureIdentity::capture(project_dir, &source_project.id).map_err(|error| {
+        render_project_action_error(
+            RENDER_LABEL,
+            "Checking capture project identity failed.",
+            error,
+        )
+    })?;
     let attempt = register_project_render_attempt(project_dir, &source_project.id, &job.id, None)?;
     let job_id = job.id.clone();
     let attempt_id = attempt.attempt_id.clone();
-    apply_project_actions_to_split_project(
-        project_dir,
-        render_job_start_actions(source_project, job, updated_at, &attempt_id),
-    )
-    .map_err(|error| {
-        render_project_action_error(RENDER_LABEL, "Persisting capture job start failed.", error)
-    })?;
+    identity
+        .persist(
+            project_dir,
+            &job_id,
+            &attempt_id,
+            render_job_start_actions(source_project, job, updated_at, &attempt_id),
+            false,
+        )
+        .map_err(|error| {
+            render_project_action_error(RENDER_LABEL, "Persisting capture job start failed.", error)
+        })?;
     let cancellation = attempt.guard.token();
     let capture = CaptureRequest {
         project_dir,
@@ -67,21 +150,30 @@ pub(super) fn capture_canonical_frame_with_sampler(
         attempt_id: &attempt_id,
         updated_at,
         cancellation: &cancellation,
+        identity: &identity,
     };
     let result = capture_after_job_started(&capture);
     if result.is_err() {
-        let _ = apply_project_actions_to_split_project(
-            project_dir,
-            vec![ProjectAction::UpdateJobStatus {
-                job_id: job_id.clone(),
-                status: JobStatus::Failed,
-                updated_at: updated_at.to_string(),
-                run_id: Some(attempt_id.clone()),
-            }],
-        );
+        persist_capture_failure(&capture);
     }
     cancellation.mark_terminal();
     result
+}
+
+fn persist_capture_failure(capture: &CaptureRequest<'_>) {
+    let status = claim_error_terminal(capture.cancellation);
+    let _ = capture.identity.persist(
+        capture.project_dir,
+        capture.job_id,
+        capture.attempt_id,
+        vec![ProjectAction::UpdateJobStatus {
+            job_id: capture.job_id.to_string(),
+            status,
+            updated_at: capture.updated_at.to_string(),
+            run_id: Some(capture.attempt_id.to_string()),
+        }],
+        true,
+    );
 }
 
 struct CaptureRequest<'a> {
@@ -93,6 +185,7 @@ struct CaptureRequest<'a> {
     attempt_id: &'a str,
     updated_at: &'a str,
     cancellation: &'a RenderCancellationToken,
+    identity: &'a CaptureIdentity,
 }
 
 fn capture_after_job_started(
@@ -280,23 +373,32 @@ fn capture_after_job_started(
             "The canonical preview capture was cancelled.",
         )]);
     }
-    let write = apply_project_actions_to_split_project(
-        project_dir,
-        vec![
-            ProjectAction::AttachRenderReport {
-                report: project_render_report.clone(),
-            },
-            ProjectAction::UpdateJobStatus {
-                job_id: capture.job_id.to_string(),
-                status: JobStatus::Completed,
-                updated_at: capture.updated_at.to_string(),
-                run_id: Some(capture.attempt_id.to_string()),
-            },
-        ],
-    )
-    .map_err(|error| {
-        render_project_action_error(RENDER_LABEL, "Persisting capture completion failed.", error)
-    })?;
+    let write = capture
+        .identity
+        .persist(
+            project_dir,
+            capture.job_id,
+            capture.attempt_id,
+            vec![
+                ProjectAction::AttachRenderReport {
+                    report: project_render_report.clone(),
+                },
+                ProjectAction::UpdateJobStatus {
+                    job_id: capture.job_id.to_string(),
+                    status: JobStatus::Completed,
+                    updated_at: capture.updated_at.to_string(),
+                    run_id: Some(capture.attempt_id.to_string()),
+                },
+            ],
+            true,
+        )
+        .map_err(|error| {
+            render_project_action_error(
+                RENDER_LABEL,
+                "Persisting capture completion failed.",
+                error,
+            )
+        })?;
 
     Ok(PreparedPreviewFrameResult {
         project: write.project,
@@ -402,3 +504,7 @@ fn capture_error(path: &str, message: &str) -> PipelineError {
         "Open the viewer to check this moment, then retry the capture.",
     )
 }
+
+#[cfg(test)]
+#[path = "canonical_capture_tests.rs"]
+mod tests;

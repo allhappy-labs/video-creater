@@ -13,6 +13,7 @@ import { spawnSync } from "node:child_process";
 import test from "node:test";
 
 import { validateRuntimeManifest } from "./gstreamer-runtime-policy.mjs";
+import { helperPreparationPlan } from "./prepare-desktop-development.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 
@@ -76,10 +77,21 @@ test("Tauri dev starts the web server immediately after explicit runtime prepara
     "pnpm dev:web-runtime",
     "cold helper builds must finish before Tauri starts its bounded devUrl poll",
   );
-  assert.match(
+  assert.equal(
     packageJson.scripts["prepare:tauri:dev"],
-    /^pnpm build:gstreamer-runtime:dev && /,
+    "node scripts/prepare-desktop-development.mjs --platform darwin",
   );
+  assert.deepEqual(helperPreparationPlan("darwin"), [
+    ["pnpm", "build:gstreamer-runtime:dev"],
+    ["pnpm", "build:compatibility-decoder:dev"],
+    ["pnpm", "build:precompose-sidecar:dev"],
+    ["pnpm", "build:avfoundation-exporter:dev"],
+    ["pnpm", "build:audio-enhancer:dev"],
+    ["pnpm", "build:semantic-encoder"],
+    ["pnpm", "build:fluidaudio-helper:dev"],
+    ["pnpm", "build:codex-sidecar:dev"],
+    ["node", "scripts/build-macos-release.mjs", "--prepare-mcp-sidecar", "--development"],
+  ]);
   assert.equal(packageJson.scripts["tauri:dev"], "node scripts/tauri-dev.mjs");
 });
 
@@ -780,6 +792,7 @@ test("release CLI checks signing configuration before touching the app binary", 
       },
     );
 
+    assert.ifError(result.error);
     assert.notEqual(result.status, 0);
     assert.match(result.stderr, /APPLE_SIGNING_IDENTITY is required/i);
     assert.equal(hash(binaryPath), before);

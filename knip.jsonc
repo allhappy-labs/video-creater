@@ -6,7 +6,10 @@
     // Spawned by playwright.remote.config.ts as the real Rust-host web server.
     "scripts/remote-host-e2e.mjs",
     // Spawned as the isolated Vite process for synchronous visual-QA commands.
-    "scripts/vite-visual-qa-server.mjs"
+    "scripts/vite-visual-qa-server.mjs",
+    // The perf entrypoint includes a Node flag before its script path.
+    "scripts/preview-calculation-baseline.mjs",
+    "scripts/history-memory-baseline.mjs"
   ],
   "ignore": [
     // Vite discovers this configuration by convention.

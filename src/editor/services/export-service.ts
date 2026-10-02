@@ -19,7 +19,7 @@ import {
   getExportProfileAvailabilityReport,
   importMediaToProject,
   loadRenderPipelineReportFromSplitProjectFolder,
-  loadSplitProjectFromFolder,
+  readProjectSnapshotFromSplitProjectFolder,
   renderMediaToSplitProjectFolder,
   startTemporalWorkflow,
   type ExportProfileAvailability,
@@ -221,13 +221,13 @@ export function createExportService(store: EditorStore, options: ExportServiceOp
       if (state().activeRender?.jobId === jobId) state().setActiveRender(null);
     };
     try {
-      const result = await renderMediaToSplitProjectFolder({ ...input, attemptId, updatedAt: startedAt });
+      const result = await renderMediaToSplitProjectFolder({ ...input, attemptId, updatedAt: startedAt, expectedRevision: state().project.contentRevision ?? 0 }, { onAdmitted: async (admission) => { await state().mergeLoadedProject(admission.project); } });
       await state().mergeLoadedProject(result.project);
       finish();
       return result;
     } catch (error) {
       const [loaded, report] = await Promise.all([
-        loadSplitProjectFromFolder({ projectDir }).catch(() => null),
+        readProjectSnapshotFromSplitProjectFolder({ projectDir }).catch(() => null),
         loadRenderPipelineReportFromSplitProjectFolder({ projectDir, jobId }).catch(() => null),
       ]);
       if (isProject(loaded)) await state().mergeLoadedProject(loaded);

@@ -58,6 +58,9 @@ macro_rules! operation {
 
 #[rustfmt::skip]
 pub const OPERATION_INVENTORY: &[OperationDescriptor] = &[
+    operation!("recover_render_attempt_in_split_project_folder", Remote, ProjectWrite, JobMutation, true, false, 65536, None),
+    operation!("load_render_attempt_in_split_project_folder", Remote, ProjectRead, Read, true, false, 65536, None),
+    operation!("read_project_snapshot_from_split_project_folder", Remote, ProjectRead, Read, true, false, 65536, None),
     operation!("abort_settings_acceptance_run", Internal, HostAdmin, HostMutation, false, false, 65536, None),
     operation!("analyze_media_for_edit_in_split_project_folder", Remote, ProjectWrite, JobMutation, true, true, 1048576, None),
     operation!("analyze_project_speech", Remote, ProjectWrite, JobMutation, true, true, 1048576, None),

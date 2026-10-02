@@ -14,6 +14,7 @@ import type {
   ProjectExportArtifact,
   ProjectJobSummary,
   ProjectMediaRenderResult,
+  MediaRenderAttempt,
   ProjectRenderReport,
   VideoProject,
 } from "../../project";
@@ -97,14 +98,32 @@ interface RenderInput {
   readonly encodeTier?: ExportEncodeTier;
   readonly output?: ExportOutput;
   readonly exportSettings?: JobExportSettings;
+  readonly timelineId?: string;
+  readonly rangeStartSeconds?: number;
+  readonly rangeEndSeconds?: number;
 }
 
 /** A render waiting for folder reloads; `reject` settles it when the render is cancelled. */
 interface PendingRender {
   readonly input: RenderInput;
+  readonly sourceDuration: number;
+  /** Admitted workers advance with time, independently of how many readers poll. */
+  lastAdvanceAt?: number;
   polls: number;
   resolve(result: ProjectMediaRenderResult): void;
   reject(reason: unknown): void;
+}
+
+function stableInput(input: RenderInput): string {
+  return JSON.stringify(Object.fromEntries(Object.entries(input).sort(([a], [b]) => a.localeCompare(b))));
+}
+
+function sourceDuration(project: VideoProject, input: RenderInput): number {
+  const timeline = input.timelineId ? project.timelines?.find((entry) => entry.id === input.timelineId)?.timeline : project.timeline;
+  if (!timeline) throw new Error("Requested timeline was not found");
+  if (input.rangeStartSeconds === undefined && input.rangeEndSeconds === undefined) return timeline.durationSeconds;
+  if (input.rangeStartSeconds === undefined || input.rangeEndSeconds === undefined || !Number.isFinite(input.rangeStartSeconds) || !Number.isFinite(input.rangeEndSeconds) || input.rangeEndSeconds <= input.rangeStartSeconds) throw new Error("Render range is invalid");
+  return input.rangeEndSeconds - input.rangeStartSeconds;
 }
 
 function renderJob(input: RenderInput, status: ProjectJobSummary["status"], updatedAt: string): ProjectJobSummary {
@@ -203,6 +222,8 @@ function absolutePath(projectDir: string, relativePath: string): string {
 /** `seedTasks` also seeds the task fixture's tasks into the sample on its first save. */
 export function exportFixtureOperations(store: FixtureProjectStore, options: { readonly seedTasks?: boolean } = {}): ReadonlyMap<string, FixtureOperationHandler> {
   const pending = new Map<string, PendingRender>();
+  const attempts = new Map<string, { input: RenderInput; outcome: MediaRenderAttempt; sourceRevision: number }>();
+  const attemptKey = (jobId: string, attemptId: string) => JSON.stringify([jobId, attemptId]);
   function requireProject(): VideoProject {
     if (!store.current) throw new Error("Open the sample project before exporting.");
     return store.current;
@@ -212,6 +233,16 @@ export function exportFixtureOperations(store: FixtureProjectStore, options: { r
   /** One folder reload: each waiting render runs, then completes on its third reload. */
   function advance(): void {
     for (const render of [...pending.values()]) {
+      const canonical = requireProject().jobs.find((job) => job.id === render.input.jobId);
+      if (canonical?.workflow?.runId !== render.input.attemptId || ["cancelled", "failed", "completed"].includes(canonical.status)) {
+        pending.delete(render.input.jobId);
+        render.reject("The render attempt was superseded or stopped.");
+        continue;
+      }
+      if (render.lastAdvanceAt !== undefined) {
+        if (Date.now() - render.lastAdvanceAt < 1_000) continue;
+        render.lastAdvanceAt = Date.now();
+      }
       render.polls += 1;
       const now = new Date().toISOString();
       if (render.polls < exportFixtureRenderPolls) {
@@ -220,7 +251,7 @@ export function exportFixtureOperations(store: FixtureProjectStore, options: { r
       }
       pending.delete(render.input.jobId);
       const base = requireProject();
-      const duration = base.timeline.durationSeconds;
+      const duration = render.sourceDuration;
       const report = projectRenderReport(render.input, now, duration);
       const shape = profileShapes.find((candidate) => candidate.profile === render.input.profile);
       const output = render.input.output;
@@ -254,19 +285,49 @@ export function exportFixtureOperations(store: FixtureProjectStore, options: { r
       (input) => {
         const request = input as unknown as RenderInput;
         const project = requireProject();
+        sourceDuration(project, request);
+        if (input.admissionProtocol !== undefined) {
+          if (input.admissionProtocol !== 1) throw new Error("Unsupported render admission protocol");
+          const key = attemptKey(request.jobId, request.attemptId);
+          const existing = attempts.get(key);
+          if (existing) {
+            if (stableInput(existing.input) !== stableInput(request)) throw new Error("Render attempt identity was reused with different inputs");
+            return { admissionProtocol: 1, project, jobId: request.jobId, attemptId: request.attemptId, sourceRevision: existing.sourceRevision };
+          }
+          if (input.expectedRevision !== project.contentRevision) throw new Error("Project revision conflict");
+          if (request.projectId !== project.id) throw new Error("Render project identity does not match");
+          if (pending.has(request.jobId)) throw new Error("Render job is busy");
+          const record = { input: request, outcome: { status: "pending" } as MediaRenderAttempt, sourceRevision: project.contentRevision ?? 0 };
+          attempts.set(key, record);
+          const admitted = recordProject(request);
+          pending.set(request.jobId, { input: request, sourceDuration: sourceDuration(project, request), lastAdvanceAt: Date.now(), polls: 0, resolve: (result) => { record.outcome = { status: "completed", result }; }, reject: () => { record.outcome = { status: "failed", message: "The render was cancelled." }; } });
+          return { admissionProtocol: 1, project: admitted, jobId: request.jobId, attemptId: request.attemptId, sourceRevision: record.sourceRevision };
+        }
         if (pending.has(request.jobId)) throw new Error(`A render for ${request.jobId} is already running.`);
         record(upsertJob(project, renderJob(request, "queued", request.updatedAt)));
         return new Promise<ProjectMediaRenderResult>((resolve, reject) => {
-          pending.set(request.jobId, { input: request, polls: 0, resolve, reject });
+          pending.set(request.jobId, { input: request, sourceDuration: sourceDuration(project, request), polls: 0, resolve, reject });
         });
       },
     ],
+    ["recover_render_attempt_in_split_project_folder", (input) => {
+      const attempt = attempts.get(attemptKey(String(input.jobId), String(input.attemptId)));
+      if (!attempt) throw new Error("Render attempt was not found");
+      return attempt.outcome;
+    }],
+    ["load_render_attempt_in_split_project_folder", (input) => {
+      const record = attempts.get(attemptKey(String(input.jobId), String(input.attemptId)));
+      if (!record) throw new Error("Render attempt was not found");
+      advance();
+      return record.outcome.status === "completed" ? { status: "completed", result: { ...record.outcome.result, project: requireProject() } } : record.outcome;
+    }],
     [
       "cancel_render_job_in_split_project_folder",
       (input) => {
         const { jobId, updatedAt } = input as { jobId: string; updatedAt: string };
         const render = pending.get(jobId);
         if (!render) throw new Error("This render is no longer running.");
+        if (input.attemptId !== render.input.attemptId) throw new Error("Render attempt identity does not match");
         pending.delete(jobId);
         const project = record(upsertJob(requireProject(), renderJob(render.input, "cancelled", updatedAt)));
         render.reject("The render was cancelled.");
@@ -315,4 +376,7 @@ export function exportFixtureOperations(store: FixtureProjectStore, options: { r
       },
     ],
   ]);
+  function recordProject(request: RenderInput): VideoProject {
+    return store.write(upsertJob(requireProject(), renderJob(request, "queued", request.updatedAt)));
+  }
 }

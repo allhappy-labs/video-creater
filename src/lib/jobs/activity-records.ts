@@ -283,14 +283,18 @@ export function projectAspectRatioLabel(project: VideoProject) {
 
 const finishedJobStatuses: ReadonlySet<string> = new Set(["completed", "failed", "cancelled"]);
 
+function sameWorkflowRun(left: ProjectJobSummary, right: ProjectJobSummary): boolean {
+  const runId = left.workflow?.runId;
+  return Boolean(runId) && runId === right.workflow?.runId;
+}
+
 /**
  * A finished job from the same workflow run always supersedes that run's unfinished copy. Temporal
  * workflows stamp their job updates with the workflow start time, which can be earlier than the
  * editor's own record of the started run.
  */
 function finishesSameWorkflowRun(incoming: ProjectJobSummary, current: ProjectJobSummary): boolean {
-  const runId = incoming.workflow?.runId;
-  return Boolean(runId) && runId === current.workflow?.runId && finishedJobStatuses.has(incoming.status) && !finishedJobStatuses.has(current.status);
+  return sameWorkflowRun(incoming, current) && finishedJobStatuses.has(incoming.status) && !finishedJobStatuses.has(current.status);
 }
 
 export function mergeProjectJobs(
@@ -300,6 +304,9 @@ export function mergeProjectJobs(
   const jobsById = new Map(currentJobs.map((job) => [job.id, job]));
   for (const job of incomingJobs) {
     const current = jobsById.get(job.id);
+    // Render transitions share their admission timestamp; time alone cannot protect a finished
+    // attempt from an older poll. A retry has a different run id and follows normal ordering.
+    if (current && sameWorkflowRun(current, job) && finishedJobStatuses.has(current.status) && job.status !== current.status) continue;
     if (!current || Date.parse(job.updatedAt) >= Date.parse(current.updatedAt) || finishesSameWorkflowRun(job, current)) {
       jobsById.set(job.id, job);
     }

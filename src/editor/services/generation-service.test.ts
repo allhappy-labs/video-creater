@@ -54,7 +54,7 @@ function setup(handlers: Record<string, Handler> = {}, preferences: Partial<AppS
       backend.project = applyProjectActionsLocally(backend.project, input.actions as ProjectAction[]);
       return { project: backend.project };
     },
-    load_split_project_from_folder: () => backend.project,
+    read_project_snapshot_from_split_project_folder: () => backend.project,
     ...handlers,
   };
   vi.mocked(backendRequest).mockImplementation(async (command: string, input?: Record<string, unknown>) => {
@@ -228,9 +228,9 @@ describe("generation service", () => {
     await service.startGeneration(imageRequest());
     await service.startGeneration(imageRequest());
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(calls("load_split_project_from_folder")).toHaveLength(1);
+    expect(calls("read_project_snapshot_from_split_project_folder")).toHaveLength(1);
     await vi.advanceTimersByTimeAsync(1_000);
-    expect(calls("load_split_project_from_folder")).toHaveLength(2);
+    expect(calls("read_project_snapshot_from_split_project_folder")).toHaveLength(2);
   });
 
   it("cancels a real generation in process and asks fal.ai to cancel the provider request", async () => {

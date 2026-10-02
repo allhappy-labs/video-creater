@@ -1,5 +1,6 @@
 import { Film } from "lucide-react";
 import { useState } from "react";
+import { refreshRemoteMediaUrl } from "@/lib/runtime/adapters/remote-resource-cache";
 import type { MediaAsset } from "@/lib/project";
 import { findTimelineItem, type PreviewOutputSize } from "@/lib/preview/canvas-geometry";
 import type { Timeline } from "@/lib/timeline";
@@ -41,7 +42,7 @@ export interface PreviewCompositorProps {
 export function PreviewCompositor(props: PreviewCompositorProps) {
   const { frame, timeline, playing, outputSize, onRetryCanonical, onOpenSource, textInteraction } = props;
   // Failed layers reset whenever the set of active media layers changes.
-  const activeLayerKey = [...frame.layers, ...frame.audioLayers].map((layer) => `${layer.itemId}:${layer.relativePath}`).join("|");
+  const activeLayerKey = [...frame.layers, ...frame.audioLayers].map((layer) => `${layer.itemId}:${layer.relativePath}:${props.mediaPreviewUrls[layer.mediaId] ?? ""}`).join("|");
   const [failed, setFailed] = useState<{ key: string; ids: ReadonlySet<string> }>({ key: activeLayerKey, ids: noFailedLayers });
   const failedLayerIds = failed.key === activeLayerKey ? failed.ids : noFailedLayers;
   const model = buildCompositorModel({ ...props, failedLayerIds });
@@ -61,7 +62,13 @@ export function PreviewCompositor(props: PreviewCompositorProps) {
 
   function retry() {
     if (model.retryPreparesCanonical) onRetryCanonical();
-    if (model.retryReloadsLayers) setFailed({ key: activeLayerKey, ids: noFailedLayers });
+    if (model.retryReloadsLayers) {
+      for (const layer of [...frame.layers, ...frame.audioLayers]) {
+        const url = props.mediaPreviewUrls[layer.mediaId];
+        if (url && failedLayerIds.has(layer.itemId)) refreshRemoteMediaUrl(url, true);
+      }
+      setFailed({ key: activeLayerKey, ids: noFailedLayers });
+    }
   }
 
   return (
@@ -70,12 +77,12 @@ export function PreviewCompositor(props: PreviewCompositorProps) {
         // Dip solids sit just beneath their transition's clips, in one keyed list so media elements keep their identity.
         ...model.visibleMediaLayers.flatMap(({ layer, sourceUrl }) => [
           ...solidsBefore(layer.itemId),
-          <PreviewMediaLayer key={layer.itemId} layer={layer} sourceUrl={sourceUrl} playing={playing} outputSize={outputSize} onLoadError={() => markFailed(layer.itemId)} />,
+          <PreviewMediaLayer key={layer.itemId} layer={layer} sourceUrl={sourceUrl} playing={playing} outputSize={outputSize} onLoadError={() => { markFailed(layer.itemId); refreshRemoteMediaUrl(sourceUrl); }} />,
         ]),
         ...solidsBefore(null),
       ]}
       {model.visibleAudioLayers.map(({ layer, sourceUrl }) => (
-        <PreviewAudioLayer key={layer.itemId} layer={layer} sourceUrl={sourceUrl} playing={playing} onLoadError={() => markFailed(layer.itemId)} />
+        <PreviewAudioLayer key={layer.itemId} layer={layer} sourceUrl={sourceUrl} playing={playing} onLoadError={() => { markFailed(layer.itemId); refreshRemoteMediaUrl(sourceUrl); }} />
       ))}
       {model.emptyStateCopy !== null && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 px-5 text-center text-[12px] text-muted-foreground">

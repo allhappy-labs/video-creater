@@ -229,7 +229,7 @@ function keptEdges(item: TimelineItem, intervals: readonly (readonly [number, nu
 }
 
 /** A flattened composite's span and the topmost track it composites, like Rust `FlattenGroup`. */
-interface FlattenGroupSpan {
+export interface FlattenGroupSpan {
   readonly start: number;
   readonly end: number;
   readonly topTrackIndex: number;
@@ -290,6 +290,22 @@ export function flattenGroupsAt(timeline: Timeline, sources: TransitionMediaSour
 
 /** The transitions of the nested-expanded `timeline` the render drops or bakes into flattened composites. */
 export function transitionEligibility(timeline: Timeline, sources: TransitionMediaSources, frameSeconds: number): TransitionEligibility {
+  return planPreviewTransitionEligibility(timeline, sources, frameSeconds).eligibility;
+}
+
+/** Calculate the playhead-independent eligibility and flattened spans together, once per plan. */
+export function planPreviewTransitionEligibility(timeline: Timeline, sources: TransitionMediaSources, frameSeconds: number): {
+  eligibility: TransitionEligibility;
+  flattenedGroups: readonly FlattenGroupSpan[];
+} {
+  const flattenPlan = flattenGroups(timeline, sources, frameSeconds);
+  return {
+    eligibility: eligibilityFromFlattenPlan(timeline, flattenPlan),
+    flattenedGroups: flattenPlan.groups.map(({ start, end, topTrackIndex }) => ({ start, end, topTrackIndex })),
+  };
+}
+
+function eligibilityFromFlattenPlan(timeline: Timeline, { groups, flattenableIds }: FlattenPlan): TransitionEligibility {
   const tracks = timeline.tracks;
   if (!tracks.some((track) => track.enabled !== false && track.transitions?.length)) {
     return { droppedTransitionIds: emptyIds, flattenedTransitionIds: emptyIds };
@@ -297,13 +313,12 @@ export function transitionEligibility(timeline: Timeline, sources: TransitionMed
   const dropped = new Set<string>();
   const flattened = new Set<string>();
   for (const track of tracks) {
+    const denoisedIds = new Set(track.items.filter(usesDenoisedIntermediate).map((item) => item.id));
     for (const transition of track.transitions ?? []) {
-      const denoised = track.items.some((item) => (item.id === transition.leftItemId || item.id === transition.rightItemId) && usesDenoisedIntermediate(item));
+      const denoised = denoisedIds.has(transition.leftItemId) || denoisedIds.has(transition.rightItemId);
       if (denoised) dropped.add(transition.id);
     }
   }
-  const { groups, flattenableIds } = flattenGroups(timeline, sources, frameSeconds);
-
   tracks.forEach((track, trackIndex) => {
     if (track.enabled === false || track.kind !== "video" || !track.transitions?.length) return;
     const intervals = groups.filter((group) => trackIndex <= group.topTrackIndex).map((group) => [group.start, group.end] as const);

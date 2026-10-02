@@ -7,12 +7,14 @@
 use std::path::Path;
 
 use crate::project::export_destination::{
-    export_artifact_contract, export_artifact_for, materialize_export_output,
+    export_artifact_contract, export_artifact_for, prepare_export_output_cancellable,
     resolve_export_destination, ExportDestination, ExportDestinationError, ExportMaterialization,
-    ExportOutputRequest, LinkPolicy, MaterializedExport,
+    ExportOutputRequest, ExportPublicationOwner, LinkPolicy, MaterializedExport,
+    PreparedExportOutput,
 };
 use crate::project::export_options::{ExportRenderOptions, JobExportSettings};
 use crate::project::model::{JobSummary, ProjectExportArtifact};
+use crate::render_pipeline::cancel::RenderCancellationToken;
 use crate::render_pipeline::error::{PipelineError, PipelineErrorCode, PipelineResult};
 
 use super::{
@@ -75,7 +77,7 @@ pub fn render_media_export_to_split_project_folder(
     })
 }
 
-fn resolve_output_destination(
+pub(super) fn resolve_output_destination(
     project_dir: &Path,
     options: ExportRenderOptions,
     output: &ExportOutputRequest,
@@ -89,37 +91,78 @@ fn resolve_output_destination(
 pub(super) struct SavedExport {
     pub(super) materialized: MaterializedExport,
     pub(super) artifact: ProjectExportArtifact,
+    owner: ExportPublicationOwner,
 }
 
-pub(super) fn save_rendered_export(
+impl SavedExport {
+    pub(super) fn rollback(&self) {
+        let _ = self.owner.rollback(&self.materialized.absolute_path);
+    }
+}
+
+pub(super) struct PreparedNamedExport {
+    staged: PreparedExportOutput,
+    profile: crate::project::export_profiles::ExportProfile,
+    job_id: String,
+    created_at: String,
+}
+
+pub(super) fn prepare_rendered_export(
     project_dir: &Path,
     options: ExportRenderOptions,
     output: &ExportOutputRequest,
     rendered_output: &Path,
     job_id: &str,
     created_at: &str,
-) -> PipelineResult<SavedExport> {
+    cancellation: &RenderCancellationToken,
+) -> PipelineResult<PreparedNamedExport> {
     let destination = resolve_output_destination(project_dir, options, output)?;
-    let materialized = materialize_export_output(ExportMaterialization {
-        destination: &destination,
-        source: rendered_output,
-        job_id,
-        link_policy: LinkPolicy::Auto,
+    let staged = prepare_export_output_cancellable(
+        ExportMaterialization {
+            destination: &destination,
+            source: rendered_output,
+            job_id,
+            link_policy: LinkPolicy::Auto,
+        },
+        &mut || !cancellation.is_cancelled(),
+    )
+    .map_err(|error| {
+        if error == ExportDestinationError::Cancelled {
+            super::render_cancelled_error("export.preparation.cancelled")
+        } else {
+            export_output_error(error)
+        }
+    })?;
+    Ok(PreparedNamedExport {
+        staged,
+        profile: options.profile,
+        job_id: job_id.into(),
+        created_at: created_at.into(),
     })
-    .map_err(export_output_error)?;
-    match export_artifact_for(
-        job_id,
-        options.profile,
-        &materialized.recorded_path,
-        created_at,
-    ) {
-        Ok(artifact) => Ok(SavedExport {
-            materialized,
-            artifact,
-        }),
-        Err(error) => {
-            let _ = std::fs::remove_file(&materialized.absolute_path);
-            Err(export_output_error(error))
+}
+
+impl PreparedNamedExport {
+    pub(super) fn publish(self) -> PipelineResult<SavedExport> {
+        let owner = self
+            .staged
+            .publication_owner()
+            .map_err(export_output_error)?;
+        let materialized = self.staged.publish().map_err(export_output_error)?;
+        match export_artifact_for(
+            &self.job_id,
+            self.profile,
+            &materialized.recorded_path,
+            &self.created_at,
+        ) {
+            Ok(artifact) => Ok(SavedExport {
+                materialized,
+                artifact,
+                owner,
+            }),
+            Err(error) => {
+                let _ = owner.rollback(&materialized.absolute_path);
+                Err(export_output_error(error))
+            }
         }
     }
 }

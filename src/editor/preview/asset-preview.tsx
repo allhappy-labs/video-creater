@@ -1,5 +1,7 @@
 import { AudioLines, Image as ImageIcon, Sparkles, Undo2, Video } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useMediaReadiness } from "@/lib/media/use-media-readiness";
+import { refreshRemoteMediaUrl } from "@/lib/runtime/adapters/remote-resource-cache";
 import {
   mediaElementDurationSeconds,
   parsePreviewDurationLabel,
@@ -54,6 +56,7 @@ function SourcePlaceholder({ label, kind }: { readonly label: string; readonly k
 export function AssetPreview({ mediaId, fullscreen, onToggleFullscreen }: { readonly mediaId: string } & PreviewFullscreenControls) {
   const project = useEditorStore((state) => state.project);
   const projectDir = useEditorStore((state) => state.projectDir);
+  useMediaReadiness(projectDir);
   const playing = useEditorStore((state) => state.playing);
   const setPlaying = useEditorStore((state) => state.setPlaying);
   const togglePlaying = useEditorStore((state) => state.togglePlaying);
@@ -61,7 +64,8 @@ export function AssetPreview({ mediaId, fullscreen, onToggleFullscreen }: { read
   const source = selectedPreviewSource(project, mediaId, null, projectDir);
   const asset = project.media.find((media) => media.id === mediaId);
   const elementRef = useRef<HTMLMediaElement | null>(null);
-  const [failed, setFailed] = useState(false);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const failed = Boolean(source?.previewUrl) && failedUrl === source?.previewUrl;
   const [position, setPosition] = useState(() => ({ currentSeconds: 0, durationSeconds: parsePreviewDurationLabel(source?.durationLabel) }));
   const canPlay = Boolean(source?.previewUrl) && !failed && playableKinds.has(source?.kind ?? "");
   const canSeek = canPlay && position.durationSeconds > 0;
@@ -125,11 +129,13 @@ export function AssetPreview({ mediaId, fullscreen, onToggleFullscreen }: { read
           onPlay={() => setPlaying(true)}
           onStop={() => setPlaying(false)}
           onError={() => {
-            setFailed(true);
+            setFailedUrl(source.previewUrl ?? null);
+            if (source.previewUrl) refreshRemoteMediaUrl(source.previewUrl);
             setPlaying(false);
           }}
           onRetry={() => {
-            setFailed(false);
+            if (source.previewUrl) refreshRemoteMediaUrl(source.previewUrl, true);
+            setFailedUrl(null);
             setPlaying(false);
           }}
         />

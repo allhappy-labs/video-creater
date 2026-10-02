@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -55,6 +56,10 @@ pub struct IssuedSession {
     pub cookie_header: String,
 }
 
+const MAX_LIVE_SESSIONS: usize = 1_024;
+const MAX_SESSION_FILE_BYTES: usize = 2 * 1024 * 1024;
+const MAX_SESSION_IDENTITY_BYTES: usize = 1_024;
+
 pub struct SessionStore {
     path: PathBuf,
     origin: String,
@@ -64,9 +69,39 @@ pub struct SessionStore {
 
 impl SessionStore {
     pub fn load(path: PathBuf, origin: &str, lifetime_seconds: u64) -> Result<Self, SessionError> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| SessionError::Io)?
+            .as_secs();
+        Self::load_at(path, origin, lifetime_seconds, now)
+    }
+
+    /// Load with an explicit clock for host bootstrap and deterministic expiry handling.
+    /// Cleanup is in memory; a failed load never rewrites the existing credential file.
+    pub fn load_at(
+        path: PathBuf,
+        origin: &str,
+        lifetime_seconds: u64,
+        now: u64,
+    ) -> Result<Self, SessionError> {
         let state = if path.exists() {
-            serde_json::from_slice(&fs::read(&path).map_err(|_| SessionError::Io)?)
-                .map_err(|_| SessionError::Io)?
+            let file = fs::File::open(&path).map_err(|_| SessionError::Io)?;
+            if file.metadata().map_err(|_| SessionError::Io)?.len() > MAX_SESSION_FILE_BYTES as u64
+            {
+                return Err(SessionError::Io);
+            }
+            let mut bytes = Vec::new();
+            file.take(MAX_SESSION_FILE_BYTES as u64 + 1)
+                .read_to_end(&mut bytes)
+                .map_err(|_| SessionError::Io)?;
+            if bytes.len() > MAX_SESSION_FILE_BYTES {
+                return Err(SessionError::Io);
+            }
+            let mut state: SessionFile =
+                serde_json::from_slice(&bytes).map_err(|_| SessionError::Io)?;
+            prune_invalid_sessions(&mut state, now);
+            validate_capacity(&state)?;
+            state
         } else {
             SessionFile::default()
         };
@@ -84,29 +119,9 @@ impl SessionStore {
         identity: Option<&str>,
         now: u64,
     ) -> Result<IssuedSession, SessionError> {
-        let session_id = uuid::Uuid::new_v4().to_string();
-        let credential = random_secret();
-        let csrf_token = random_secret();
-        let mut state = self.state.lock().map_err(|_| SessionError::Io)?;
-        state.sessions.push(StoredSession {
-            id: session_id.clone(),
-            credential_hash: hash(&credential),
-            csrf_hash: hash(&csrf_token),
-            previous_csrf_hashes: Vec::new(),
-            display_name: display_name.chars().take(100).collect(),
-            identity: identity.map(str::to_owned),
-            created_at: now,
-            expires_at: now.saturating_add(self.lifetime_seconds),
-            revoked: false,
-        });
-        self.persist(&state)?;
-        Ok(IssuedSession {
-            session_id,
-            cookie_header: format!(
-                "vc_session={credential}; Path=/; Secure; HttpOnly; SameSite=Strict"
-            ),
-            credential,
-            csrf_token,
+        self.transact(|state| {
+            prune_invalid_sessions(state, now);
+            append_session(state, display_name, identity, now, self.lifetime_seconds)
         })
     }
 
@@ -180,14 +195,15 @@ impl SessionStore {
     }
 
     pub fn revoke(&self, id: &str) -> Result<(), SessionError> {
-        let mut state = self.state.lock().map_err(|_| SessionError::Io)?;
-        let session = state
-            .sessions
-            .iter_mut()
-            .find(|item| item.id == id)
-            .ok_or(SessionError::Invalid)?;
-        session.revoked = true;
-        self.persist(&state)
+        self.transact(|state| {
+            let session = state
+                .sessions
+                .iter_mut()
+                .find(|item| item.id == id)
+                .ok_or(SessionError::Invalid)?;
+            session.revoked = true;
+            Ok(())
+        })
     }
 
     pub fn logout(&self, credential: &str) -> Result<(), SessionError> {
@@ -205,37 +221,83 @@ impl SessionStore {
     }
 
     pub fn rotate(&self, credential: &str, now: u64) -> Result<IssuedSession, SessionError> {
-        let current = self.authenticate(credential, now)?;
-        self.revoke(&current.session_id)?;
-        self.issue(&current.display_name, current.identity.as_deref(), now)
+        let digest = hash(credential);
+        self.transact(|state| {
+            // Authentication and replacement happen under one state lock. Failed persistence
+            // cannot revoke the old credential or expose the replacement credential in memory.
+            let current = state
+                .sessions
+                .iter()
+                .find(|item| constant_eq(item.credential_hash.as_bytes(), digest.as_bytes()))
+                .ok_or(SessionError::Invalid)?;
+            if current.revoked {
+                return Err(SessionError::Revoked);
+            }
+            if now > current.expires_at {
+                return Err(SessionError::Expired);
+            }
+            let current = current.clone();
+            prune_invalid_sessions(state, now);
+            state
+                .sessions
+                .iter_mut()
+                .find(|item| item.id == current.id)
+                .ok_or(SessionError::Invalid)?
+                .revoked = true;
+            append_session(
+                state,
+                &current.display_name,
+                current.identity.as_deref(),
+                now,
+                self.lifetime_seconds,
+            )
+        })
     }
 
     pub fn refresh_csrf(&self, session_id: &str) -> Result<String, SessionError> {
-        let csrf_token = random_secret();
-        let mut state = self.state.lock().map_err(|_| SessionError::Io)?;
-        let session = state
-            .sessions
-            .iter_mut()
-            .find(|item| item.id == session_id)
-            .ok_or(SessionError::Invalid)?;
-        session
-            .previous_csrf_hashes
-            .insert(0, session.csrf_hash.clone());
-        session.previous_csrf_hashes.truncate(4);
-        session.csrf_hash = hash(&csrf_token);
-        self.persist(&state)?;
-        Ok(csrf_token)
+        self.transact(|state| {
+            let csrf_token = random_secret();
+            let session = state
+                .sessions
+                .iter_mut()
+                .find(|item| item.id == session_id)
+                .ok_or(SessionError::Invalid)?;
+            session
+                .previous_csrf_hashes
+                .insert(0, session.csrf_hash.clone());
+            session.previous_csrf_hashes.truncate(4);
+            session.csrf_hash = hash(&csrf_token);
+            Ok(csrf_token)
+        })
     }
 
     pub fn revoke_all(&self) -> Result<(), SessionError> {
+        self.transact(|state| {
+            for session in &mut state.sessions {
+                session.revoked = true;
+            }
+            Ok(())
+        })
+    }
+
+    fn transact<T>(
+        &self,
+        change: impl FnOnce(&mut SessionFile) -> Result<T, SessionError>,
+    ) -> Result<T, SessionError> {
         let mut state = self.state.lock().map_err(|_| SessionError::Io)?;
-        for session in &mut state.sessions {
-            session.revoked = true;
-        }
-        self.persist(&state)
+        let mut next = state.clone();
+        let value = change(&mut next)?;
+        self.persist(&next)?;
+        *state = next;
+        Ok(value)
     }
 
     fn persist(&self, state: &SessionFile) -> Result<(), SessionError> {
+        validate_capacity(state)?;
+        let bytes = serde_json::to_vec_pretty(state).map_err(|_| SessionError::Io)?;
+        if bytes.len() > MAX_SESSION_FILE_BYTES {
+            return Err(SessionError::Io);
+        }
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent).map_err(|_| SessionError::Io)?;
         }
@@ -251,18 +313,74 @@ impl SessionStore {
                 .mode(0o600)
                 .open(&temporary)
                 .map_err(|_| SessionError::Io)?;
-            file.write_all(&serde_json::to_vec_pretty(state).map_err(|_| SessionError::Io)?)
-                .map_err(|_| SessionError::Io)?;
+            file.write_all(&bytes).map_err(|_| SessionError::Io)?;
             file.sync_all().map_err(|_| SessionError::Io)?;
         }
         #[cfg(not(unix))]
-        fs::write(
-            &temporary,
-            serde_json::to_vec_pretty(state).map_err(|_| SessionError::Io)?,
-        )
-        .map_err(|_| SessionError::Io)?;
+        fs::write(&temporary, &bytes).map_err(|_| SessionError::Io)?;
         fs::rename(temporary, &self.path).map_err(|_| SessionError::Io)
     }
+}
+
+fn validate_capacity(state: &SessionFile) -> Result<(), SessionError> {
+    if state
+        .sessions
+        .iter()
+        .filter(|session| !session.revoked)
+        .count()
+        > MAX_LIVE_SESSIONS
+    {
+        return Err(SessionError::Io);
+    }
+    Ok(())
+}
+
+fn prune_invalid_sessions(state: &mut SessionFile, now: u64) {
+    // At the exact expiry timestamp the existing authentication contract still accepts it.
+    state
+        .sessions
+        .retain(|session| !session.revoked && now <= session.expires_at);
+}
+
+fn append_session(
+    state: &mut SessionFile,
+    display_name: &str,
+    identity: Option<&str>,
+    now: u64,
+    lifetime_seconds: u64,
+) -> Result<IssuedSession, SessionError> {
+    if state
+        .sessions
+        .iter()
+        .filter(|session| !session.revoked)
+        .count()
+        >= MAX_LIVE_SESSIONS
+        || identity.is_some_and(|value| value.len() > MAX_SESSION_IDENTITY_BYTES)
+    {
+        return Err(SessionError::Io);
+    }
+    let session_id = uuid::Uuid::new_v4().to_string();
+    let credential = random_secret();
+    let csrf_token = random_secret();
+    state.sessions.push(StoredSession {
+        id: session_id.clone(),
+        credential_hash: hash(&credential),
+        csrf_hash: hash(&csrf_token),
+        previous_csrf_hashes: Vec::new(),
+        display_name: display_name.chars().take(100).collect(),
+        identity: identity.map(str::to_owned),
+        created_at: now,
+        expires_at: now.saturating_add(lifetime_seconds),
+        revoked: false,
+    });
+    Ok(IssuedSession {
+        session_id,
+        cookie_header: format!(
+            "vc_session={credential}; Path=/; Secure; HttpOnly; SameSite=Strict"
+        ),
+        credential,
+        csrf_token,
+    })
 }
 
 fn random_secret() -> String {
@@ -293,3 +411,7 @@ fn view(session: &StoredSession) -> SessionView {
         revoked: session.revoked,
     }
 }
+
+#[cfg(test)]
+#[path = "session_retention_tests.rs"]
+mod retention_tests;

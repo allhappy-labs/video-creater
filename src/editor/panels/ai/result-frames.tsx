@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { clockLabel } from "@/lib/agent/result-facts";
 import { projectContentEqual } from "@/lib/jobs/merge-job-state";
 import { previewUrlForMedia } from "@/lib/media/preview-source";
+import { useMediaReadiness } from "@/lib/media/use-media-readiness";
+import { refreshRemoteMediaUrl } from "@/lib/runtime/adapters/remote-resource-cache";
 import { captureCanonicalPreviewFrameInSplitProjectFolder, type CodexProposalImpact, type VideoProject } from "@/lib/project";
 import type { AgentAppliedResult } from "../../store/agent-slice";
 import { useEditorStore, useEditorStoreApi } from "../../store/editor-store-context";
@@ -20,7 +22,7 @@ const sameFrameSeconds = 0.05;
 const endMarginSeconds = 0.05;
 const maxRememberedResults = 24;
 
-type FrameCapture = { readonly status: "ready"; readonly url: string } | { readonly status: "failed" };
+type FrameCapture = { readonly status: "ready"; readonly path: string } | { readonly status: "failed" };
 
 const frameCache = new Map<string, FrameCapture>();
 /** The applied project per result, to tell content edits from bookkeeping-only revision bumps. */
@@ -75,6 +77,7 @@ function isStale(projectDir: string, result: AgentAppliedResult, project: VideoP
 function useResultStale(result: AgentAppliedResult): boolean {
   const project = useEditorStore((state) => state.project);
   const projectDir = useEditorStore((state) => state.projectDir);
+  useMediaReadiness(projectDir);
   return isStale(projectDir, result, project);
 }
 
@@ -123,8 +126,7 @@ export function ResultFrames({ result, onOpenViewer }: ResultFramesProps) {
               jobId: captureJobId(result.revision, seconds),
               updatedAt: new Date().toISOString(),
             });
-            const url = previewUrlForMedia(projectDir, captured.previewFrame);
-            frameCache.set(key, url ? { status: "ready", url } : { status: "failed" });
+            frameCache.set(key, { status: "ready", path: captured.previewFrame });
             // The capture recorded a job; merge it so the next save doesn't conflict.
             void store.getState().mergeLoadedProject(captured.project);
           } catch {
@@ -142,7 +144,7 @@ export function ResultFrames({ result, onOpenViewer }: ResultFramesProps) {
 
   if (times.length === 0) return null;
   const frames: FrameView[] = times.map((seconds) => ({ seconds, capture: frameCache.get(frameKey(projectDir, result.revision, seconds)) ?? null }));
-  const ready = frames.filter((frame): frame is { seconds: number; capture: { status: "ready"; url: string } } => frame.capture?.status === "ready");
+  const ready = frames.filter((frame) => frame.capture?.status === "ready" && previewUrlForMedia(projectDir, frame.capture.path));
   const settled = frames.every((frame) => frame.capture !== null);
   const failed = settled && ready.length === 0;
 
@@ -183,7 +185,7 @@ export function ResultFrames({ result, onOpenViewer }: ResultFramesProps) {
       {stale && ready.length > 0 && <p className="text-[11px] font-medium text-warning">Earlier version</p>}
       <ul className="grid grid-cols-4 gap-1">
         {frames.map((frame) =>
-          frame.capture?.status === "ready" ? (
+          frame.capture?.status === "ready" && previewUrlForMedia(projectDir, frame.capture.path) ? (
             <li key={frame.seconds}>
               <button
                 type="button"
@@ -191,7 +193,7 @@ export function ResultFrames({ result, onOpenViewer }: ResultFramesProps) {
                 onClick={() => play(frame.seconds)}
                 className="block aspect-video w-full overflow-hidden rounded bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <img src={frame.capture.url} alt="" width={160} height={90} draggable={false} className={`h-full w-full object-cover ${stale ? "opacity-60" : ""}`} />
+                <img src={previewUrlForMedia(projectDir, frame.capture.path) ?? undefined} onError={(event) => { refreshRemoteMediaUrl(event.currentTarget.getAttribute("src") ?? ""); }} alt="" width={160} height={90} draggable={false} className={`h-full w-full object-cover ${stale ? "opacity-60" : ""}`} />
               </button>
             </li>
           ) : frame.capture === null ? (

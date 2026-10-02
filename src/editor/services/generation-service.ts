@@ -31,7 +31,7 @@ import {
   cancelGenerateMediaProviderRequestInSplitProjectFolder,
   completeMockGeneratedAssetInSplitProjectFolder,
   listGenerationModelCatalog,
-  loadSplitProjectFromFolder,
+  readProjectSnapshotFromSplitProjectFolder,
   retryGeneratedAssetOutputDownloadInSplitProjectFolder,
   runGenerateMediaInProcess,
   type GeneratedAsset,
@@ -305,7 +305,7 @@ export function createGenerationService(store: EditorStore, options: GenerationS
       // The native runner persists the failed job before rejecting, so reload to show it.
       let latest = state().project;
       try {
-        const failed = await loadSplitProjectFromFolder({ projectDir: state().projectDir });
+        const failed = await readProjectSnapshotFromSplitProjectFolder({ projectDir: state().projectDir });
         if (isProject(failed)) {
           await commitProject(failed);
           latest = failed;

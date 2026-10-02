@@ -109,6 +109,7 @@ export function createFixtureProjectStore(): FixtureProjectStore {
     },
     save(project, projectDir, expectedRevision) {
       const actual = revision();
+      if (current && current.id !== project.id) throw new Error("Project identity does not match");
       if (expectedRevision !== undefined && expectedRevision !== actual) throw revisionConflictMessage(expectedRevision, actual);
       const replacement = current ? preserveWorkerOwnedState(current, project) : seeds.reduce((seeded, seed) => seed(seeded, projectDir), project);
       current = { ...replacement, schemaVersion: 2, contentRevision: actual + 1 };

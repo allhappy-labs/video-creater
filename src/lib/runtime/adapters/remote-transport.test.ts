@@ -6,7 +6,7 @@ import { RemoteTransport } from "./remote-transport";
 import { resetRemoteCsrfTokenForTests, setRemoteCsrfToken } from "./remote-credentials";
 
 describe("RemoteTransport", () => {
-  beforeEach(() => resetRemoteCsrfTokenForTests());
+  beforeEach(() => { window.sessionStorage.clear(); resetRemoteCsrfTokenForTests(); });
 
   it("uses a refreshed CSRF token shared by browser-only operations", async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
@@ -52,8 +52,8 @@ describe("RemoteTransport", () => {
   it("surfaces a stable remote error without leaking response internals", async () => {
     const transport = new RemoteTransport({
       csrfToken: "csrf-1",
-      fetcher: async () => new Response(JSON.stringify({
-        requestId: "request-1",
+      fetcher: async (_url, init) => new Response(JSON.stringify({
+        requestId: (JSON.parse(String(init?.body)) as { requestId: string }).requestId,
         ok: false,
         error: { code: "forbidden", message: "operation is not permitted" },
       })),
@@ -79,7 +79,7 @@ describe("RemoteTransport", () => {
     expect(receiver).toBe(globalThis);
   });
 
-  it("prepares opaque media tickets before returning a loaded project", async () => {
+  it("prepares opaque media tickets independently of returning a loaded project", async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input) === "/api/v1/resource-tickets/media") {
         return new Response(JSON.stringify({
@@ -100,9 +100,27 @@ describe("RemoteTransport", () => {
 
     await transport.request("load_split_project_from_folder", { projectDir: "opaque-project" });
 
+    await vi.waitFor(() => expect(transport.mediaUrl("opaque-project/media/clip.mp4")).not.toBe(""));
+
     expect(transport.mediaUrl("opaque-project/media/clip.mp4")).toBe("/api/v1/media/0123456789abcdef0123456789abcdef");
     expect(fetcher).toHaveBeenCalledTimes(3);
     expect(remoteEditorLeaseToken("opaque-project")).toBe("lease-1");
+  });
+
+  it("does not let a stalled ticket request block committed edits or the next edit", async () => {
+    const requests: Array<Record<string, unknown>> = [];
+    const transport = new RemoteTransport({ csrfToken: "csrf", fetcher: async (url, init) => {
+      if (String(url).endsWith("/lease")) return new Response(JSON.stringify({ mode: "editor", editorLeaseToken: "lease", expiresAt: 200 }));
+      if (String(url).endsWith("/resource-tickets/media")) return new Promise<Response>(() => undefined);
+      const request = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      requests.push(request);
+      return new Response(JSON.stringify({ requestId: request.requestId, ok: true, result: { project: { contentRevision: requests.length, media: [{ relativePath: "media/a.mp4" }] } } }));
+    } });
+    await transport.request("apply_project_actions_to_split_project_folder", { projectDir: "p", actions: [] });
+    await transport.request("apply_project_actions_to_split_project_folder", { projectDir: "p", actions: [] });
+    expect(requests).toHaveLength(2);
+    expect(requests[1]?.expectedRevision).toBe(1);
+    expect(transport.mediaUrl("p/media/a.mp4")).toBe("");
   });
 
   it("adds the private editor lease to project mutations", async () => {

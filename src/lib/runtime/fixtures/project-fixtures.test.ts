@@ -32,6 +32,26 @@ function setup() {
 }
 
 describe("project fixture operations", () => {
+  it("requires an existing project for a nonactivating restore while default saves can create", async () => {
+    const { store, request, open } = setup();
+    await expect(request("save_split_project_to_folder", {
+      projectDir, project: createSampleProject(), expectedRevision: 0, activateProject: false,
+    })).rejects.toBe("This folder has no saved project yet.");
+    expect(store.current).toBeNull();
+
+    const opened = await open();
+    const snapshot = { ...opened, name: "restored snapshot" };
+    const restored = await request<ProjectActionWriteResult>("save_split_project_to_folder", {
+      projectDir, project: snapshot, expectedRevision: opened.contentRevision, activateProject: false,
+    });
+    expect(restored.project).toMatchObject({ name: snapshot.name, contentRevision: 2 });
+    await expect(request<VideoProject>("read_project_snapshot_from_split_project_folder", { projectDir })).resolves.toEqual(restored.project);
+    await expect(request("save_split_project_to_folder", {
+      projectDir, project: { ...restored.project, id: "replacement" }, expectedRevision: 2, activateProject: false,
+    })).rejects.toThrow("Project identity does not match");
+    expect(store.current).toEqual(restored.project);
+  });
+
   it("opens, reloads and edits the sample as a folder project with increasing revisions", async () => {
     const { request, open } = setup();
     await expect(request("load_split_project_from_folder", { projectDir })).rejects.toBe("This folder has no saved project yet.");

@@ -7,7 +7,7 @@
 //! [`JOB_PROGRESS_MIN_INTERVAL`]. Reads take no lease. Snapshots are bookkeeping: they never enter
 //! `job.json` or undo history.
 
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -165,6 +165,13 @@ fn snapshot_files(project_dir: &Path) -> Result<Vec<(String, PathBuf, u64)>, Str
 
 /// Reads every valid progress snapshot of a split project without taking any lease.
 pub fn read_job_progress_snapshots(project_dir: &Path) -> Result<Vec<JobProgressSnapshot>, String> {
+    read_job_progress_snapshots_with_file_hook(project_dir, &mut |_| {})
+}
+
+fn read_job_progress_snapshots_with_file_hook(
+    project_dir: &Path,
+    before_open: &mut dyn FnMut(&Path),
+) -> Result<Vec<JobProgressSnapshot>, String> {
     let mut snapshots = Vec::new();
     for (job_id, path, len) in snapshot_files(project_dir)? {
         if snapshots.len() >= MAX_SNAPSHOTS {
@@ -173,9 +180,32 @@ pub fn read_job_progress_snapshots(project_dir: &Path) -> Result<Vec<JobProgress
         if len > MAX_SNAPSHOT_BYTES {
             continue;
         }
-        let Ok(bytes) = std::fs::read(&path) else {
+        before_open(&path);
+        let mut options = std::fs::OpenOptions::new();
+        options.read(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
+        }
+        let Ok(file) = options.open(&path) else {
             continue;
         };
+        let Ok(metadata) = file.metadata() else {
+            continue;
+        };
+        if !metadata.is_file() || metadata.len() > MAX_SNAPSHOT_BYTES {
+            continue;
+        }
+        let mut bytes = Vec::new();
+        if file
+            .take(MAX_SNAPSHOT_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .is_err()
+            || bytes.len() as u64 > MAX_SNAPSHOT_BYTES
+        {
+            continue;
+        }
         let Ok(snapshot) = serde_json::from_slice::<JobProgressSnapshot>(&bytes) else {
             continue;
         };
@@ -320,6 +350,56 @@ mod tests {
 
         assert!(!JobProgressReporter::new(&dir, "../escape").report(0.5));
         assert!(!dir.join("logs/escape.json").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reader_skips_a_snapshot_replaced_with_a_symlink_after_listing() {
+        let (temp, dir) = split_project();
+        assert!(JobProgressReporter::new(&dir, "job-race").report(0.2));
+        let external = temp.path().join("external.json");
+        std::fs::write(
+            &external,
+            serde_json::to_vec(&JobProgressSnapshot {
+                job_id: "job-race".into(),
+                progress: 0.9,
+                updated_at: "external".into(),
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let snapshots = read_job_progress_snapshots_with_file_hook(&dir, &mut |path| {
+            std::fs::remove_file(path).unwrap();
+            std::os::unix::fs::symlink(&external, path).unwrap();
+        })
+        .unwrap();
+        assert!(
+            snapshots.is_empty(),
+            "a stat/open race must never follow a snapshot symlink"
+        );
+    }
+
+    #[test]
+    fn reader_bounds_a_snapshot_that_grows_after_listing() {
+        let (_temp, dir) = split_project();
+        assert!(JobProgressReporter::new(&dir, "job-grow").report(0.2));
+        let snapshots = read_job_progress_snapshots_with_file_hook(&dir, &mut |path| {
+            std::fs::write(
+                path,
+                serde_json::to_vec(&JobProgressSnapshot {
+                    job_id: "job-grow".into(),
+                    progress: 0.9,
+                    updated_at: "x".repeat(MAX_SNAPSHOT_BYTES as usize),
+                })
+                .unwrap(),
+            )
+            .unwrap();
+        })
+        .unwrap();
+        assert!(
+            snapshots.is_empty(),
+            "opened snapshots must obey the size bound"
+        );
     }
 
     #[cfg(unix)]

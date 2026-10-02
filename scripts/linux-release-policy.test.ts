@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import test from "node:test";
 
 import { PREPARE_SCRIPT_BY_PLATFORM, prepareScriptFor } from "./tauri-dev.mjs";
+import { helperPreparationPlan } from "./prepare-desktop-development.mjs";
 import {
   deniedLibraries,
   missingPayload,
@@ -28,9 +29,21 @@ test("desktop development prepares the host platform's helpers before tauri dev"
 
 test("Linux development never builds Apple helpers", () => {
   const linuxPrepare = packageJson.scripts["prepare:tauri:dev:linux"];
-  assert.match(linuxPrepare, /^pnpm build:linux-media-runtime --package /);
-  assert.doesNotMatch(linuxPrepare, /gstreamer-runtime|avfoundation|fluidaudio|build:audio-enhancer|build:semantic-encoder\b/);
-  for (const script of linuxPrepare.split(" && ").map((step: string) => step.match(/^pnpm (\S+)/)?.[1]).filter(Boolean)) {
+  assert.equal(linuxPrepare, "node scripts/prepare-desktop-development.mjs --platform linux");
+  const plan = helperPreparationPlan("linux");
+  assert.deepEqual(plan, [
+    ["pnpm", "build:linux-media-runtime", "--package", "src-tauri/resources/render-runtime-package"],
+    ["pnpm", "build:compatibility-decoder:linux:dev"],
+    ["pnpm", "build:precompose-sidecar:dev"],
+    ["pnpm", "build:linux-audio-enhancer:dev"],
+    ["pnpm", "build:linux-semantic-encoder"],
+    ["pnpm", "build:linux-speech-worker:dev"],
+    ["pnpm", "build:codex-sidecar:dev"],
+    ["node", "scripts/build-macos-release.mjs", "--prepare-mcp-sidecar", "--development"],
+  ]);
+  for (const [command, script] of plan) {
+    if (command !== "pnpm") continue;
+    assert.doesNotMatch(script, /gstreamer-runtime|avfoundation|fluidaudio|build:audio-enhancer|build:semantic-encoder\b/);
     assert.ok(packageJson.scripts[script], `missing package script ${script}`);
   }
 });

@@ -14,7 +14,7 @@ import {
   type ProjectAction,
   type VideoProject,
 } from "@/lib/project";
-import { BackendOperationError, isBackendUnavailableError } from "@/lib/runtime/backend-transport";
+import { BackendOperationError, isBackendUnavailableError, isUnknownRemoteOutcome } from "@/lib/runtime/backend-transport";
 import type { AgentAssistantMessage, AgentFailure, AgentMessage, AgentProposalCard, AgentRuntime, AgentUserMessage } from "./agent-slice";
 import type { EditorState, EditorStore } from "./editor-store";
 
@@ -85,6 +85,7 @@ function unresolvedCopy(names: readonly string[]): string {
 }
 
 function applyFailure(error: unknown): AgentFailure {
+  if (isUnknownRemoteOutcome(error)) return { kind: "outcomeUnknown", message: error.message, retryable: false };
   if (isBackendUnavailableError(error)) return { kind: "applyFailed", message: agentUnavailableCopy, retryable: true };
   const message = backendMessage(error);
   const final = staleApplyPattern.test(message) || reviewRequiredPattern.test(message);
@@ -92,6 +93,7 @@ function applyFailure(error: unknown): AgentFailure {
 }
 
 function turnFailure(error: unknown): AgentFailure {
+  if (isUnknownRemoteOutcome(error)) return { kind: "outcomeUnknown", message: error.message, retryable: false };
   if (isBackendUnavailableError(error)) return { kind: "agentUnavailable", message: agentUnavailableCopy, retryable: false };
   const message = backendMessage(error);
   if (usageLimitPattern.test(message)) return { kind: "agentUnavailable", message: usageLimitCopy, retryable: false };
@@ -207,7 +209,10 @@ export function createAgentTurnActions(set: EditorStore["setState"], get: () => 
     } catch (error) {
       const failure = applyFailure(error);
       patchAssistant(messageId, (current) => ({ ...current, status: "failed", failure }));
-      if (isLatestTurn(message.replyTo)) dispatch({ type: "applyFailed", message: failure.message });
+      if (isLatestTurn(message.replyTo)) {
+        if (failure.kind === "outcomeUnknown") dispatch({ type: "failed", kind: "outcomeUnknown", message: failure.message });
+        else dispatch({ type: "applyFailed", message: failure.message });
+      }
       track(message.replyTo, "failed", null, failure.message);
       return false;
     }
@@ -343,6 +348,10 @@ export function createAgentTurnActions(set: EditorStore["setState"], get: () => 
         if (outcome.status === "conflict" && isLatestTurn(message.replyTo)) dispatch({ type: "undoConflict" });
         return false;
       } catch (error) {
+        if (isUnknownRemoteOutcome(error)) {
+          patchUndo({ available: false, pending: false, reason: error.message, error: null });
+          return false;
+        }
         patchUndo({ available: true, pending: false, reason: null, error: isBackendUnavailableError(error) ? agentUnavailableCopy : backendMessage(error) });
         return false;
       }

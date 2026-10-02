@@ -21,7 +21,7 @@ interface ConversationTurn {
   readonly draft: string;
 }
 
-export type ConversationFailureKind = "validationBlocked" | "applyFailed" | "turnFailed" | "agentUnavailable";
+export type ConversationFailureKind = "validationBlocked" | "applyFailed" | "turnFailed" | "agentUnavailable" | "outcomeUnknown";
 
 type ConversationRetry =
   | { readonly kind: "apply"; readonly reviewApproved: boolean }
@@ -162,7 +162,7 @@ export function conversationReducer(state: ConversationState, event: Conversatio
           }
         : state;
     case "failed": {
-      const turn = inFlightTurn(state);
+      const turn = inFlightTurn(state) ?? (event.kind === "outcomeUnknown" && isApplying(state) ? state.turn : null);
       if (!turn) return state;
       const retry: ConversationRetry | null = event.kind === "turnFailed" ? { kind: "resubmit" } : null;
       return { status: "failed", turn, failure: { kind: event.kind, message: event.message, retry } };
@@ -193,6 +193,7 @@ const failureLabels: Record<ConversationFailureKind, string> = {
   applyFailed: "Nothing was changed",
   turnFailed: "The edit didn't finish",
   agentUnavailable: "Agent unavailable",
+  outcomeUnknown: "Edit unconfirmed",
 };
 
 /** The failure card's text status. */

@@ -1,3 +1,4 @@
+import { parseRenderAdmission, parseRenderAttempt, renderJobOperations } from "./runtime/render-job-contract";
 import { backendRequest } from "@/lib/runtime/backend-client";
 import type { EditJobRequest } from "./edit";
 import type {
@@ -3652,6 +3653,8 @@ export async function saveSplitProjectToFolder(input: {
   projectDir: string;
   project: VideoProject;
   expectedRevision: number;
+  /** False restores an existing canonical snapshot without activating a desktop session. */
+  activateProject?: boolean;
 }): Promise<ProjectActionWriteResult> {
   return backendRequest("save_split_project_to_folder", input);
 }
@@ -3953,9 +3956,47 @@ export async function renderMediaToSplitProjectFolder(input: ExportEncodeOptions
   timelineId?: string;
   /** What the job records for Retry (`ExportStartPlan.settings`); used with `output`. */
   exportSettings?: JobExportSettings;
-}): Promise<ProjectMediaRenderResult> {
-  return backendRequest("render_media_to_split_project_folder", input);
+  /** Admission validates this revision before durably queuing immutable render input. */
+  expectedRevision?: number;
+}, options: { onAdmitted?: (admission: MediaRenderAdmission) => void | Promise<void> } = {}): Promise<ProjectMediaRenderResult> {
+  const response = await backendRequest<ProjectMediaRenderResult | MediaRenderAdmission>(renderJobOperations.admit, {
+    ...input,
+    ...(input.expectedRevision === undefined ? {} : { admissionProtocol: 1 }),
+  });
+  if (!("admissionProtocol" in response)) return response;
+  const admission = parseRenderAdmission(response, input.jobId, input.attemptId);
+  await options.onAdmitted?.(admission);
+  // Each poll is a separate short request; the accepted render never owns the editor queue.
+  for (;;) {
+    const attempt = parseRenderAttempt(await backendRequest<unknown>(renderJobOperations.attempt, {
+      projectDir: input.projectDir, jobId: input.jobId, attemptId: input.attemptId,
+    }));
+    if (attempt.status === "completed") return attempt.result;
+    if (attempt.status === "failed") {
+      if (attempt.interrupted) await backendRequest(renderJobOperations.recover, { projectDir: input.projectDir, jobId: input.jobId, attemptId: input.attemptId });
+      throw new Error(attempt.message);
+    }
+    if (attempt.status !== "pending") throw new Error("Render attempt response is invalid.");
+    await new Promise<void>((resolve) => setTimeout(resolve, 500));
+  }
 }
+
+export interface MediaRenderAdmission {
+  admissionProtocol: 1;
+  project: VideoProject;
+  jobId: string;
+  attemptId: string;
+  sourceRevision: number;
+}
+
+export async function readProjectSnapshotFromSplitProjectFolder(input: { projectDir: string }): Promise<VideoProject> {
+  return backendRequest("read_project_snapshot_from_split_project_folder", input);
+}
+
+export type MediaRenderAttempt =
+  | { status: "pending" }
+  | { status: "completed"; result: ProjectMediaRenderResult }
+  | { status: "failed"; message: string; interrupted?: boolean };
 
 export async function cancelRenderJobInSplitProjectFolder(input: {
   projectDir: string;
@@ -4129,6 +4170,7 @@ export async function applyProjectActionToProject(input: {
 
 export async function applyProjectActionToSplitProjectFolder(input: {
   projectDir: string;
+  expectedRevision?: number;
   action: ProjectAction;
 }): Promise<ProjectActionWriteResult> {
   return backendRequest("apply_project_action_to_split_project_folder", input);
@@ -4144,6 +4186,7 @@ export async function updateProjectSettingsInSplitProjectFolder(input: {
 
 export async function applyProjectActionsToSplitProjectFolder(input: {
   projectDir: string;
+  expectedRevision?: number;
   actions: ProjectAction[];
 }): Promise<ProjectActionWriteResult> {
   return backendRequest("apply_project_actions_to_split_project_folder", input);

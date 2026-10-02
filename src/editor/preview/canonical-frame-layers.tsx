@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { refreshRemoteMediaUrl } from "@/lib/runtime/adapters/remote-resource-cache";
 import { previewMotionStyle, type PreviewOutputSize } from "@/lib/preview/canvas-geometry";
 import { CanonicalFramePreloader, canonicalPreloadUrls, type CanonicalFrameLayer, type CanonicalFrameSequence } from "./canonical-frames";
 import { PreviewLayerFrame } from "./media-layer";
@@ -56,7 +57,7 @@ export function CanonicalFrameLayers({ frameLayers, sequences, seconds, outputSi
                 ...(layer.centerX === undefined && layer.centerY === undefined ? { inset: 0, width: "100%", height: "100%" } : {}),
                 ...previewMotionStyle(layer, outputSize),
               }}
-              onError={() => setFailedFrameUrl(frameUrl)}
+              onError={() => { setFailedFrameUrl(frameUrl); refreshRemoteMediaUrl(frameUrl); }}
             />
           </PreviewLayerFrame>
         ),
@@ -74,7 +75,7 @@ export function CanonicalFrameLayers({ frameLayers, sequences, seconds, outputSi
           tone="failure"
           onRetry={() => {
             setFailedFrameUrl(null);
-            onRetry();
+            if (!failedFrameUrl || !refreshRemoteMediaUrl(failedFrameUrl, true)) onRetry();
           }}
           onOpenSource={() => onOpenSource(failedLayer.itemId, failedLayer.mediaId)}
         />

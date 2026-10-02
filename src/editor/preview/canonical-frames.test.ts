@@ -56,14 +56,17 @@ describe("canonical state", () => {
 });
 
 describe("canonical frame selection", () => {
-  it("maps frame paths to preview URLs and drops unresolvable ones", () => {
+  it("preserves frame positions when media URLs are temporarily unresolved", () => {
     const project = fixtureProject();
     const result: PreparedProjectPreview = {
       project,
       reports: [],
-      frameSequences: [{ ...sequence, framePaths: ["cache/0.png", "../escape.png"] }],
+      frameSequences: [{ ...sequence, startSeconds: 0, fps: 1, durationSeconds: 3, framePaths: ["cache/0.png", "../escape.png", "cache/2.png"] }],
     };
-    expect(canonicalFrameSequences(result, "/p")[0]?.frameUrls).toEqual(["/p/cache/0.png"]);
+    const sequences = canonicalFrameSequences(result, "/p");
+    expect(sequences[0]?.frameUrls).toEqual(["/p/cache/0.png", null, "/p/cache/2.png"]);
+    expect(canonicalFrameLayers(frameWith([layer("flatten-1", "prepared-1")]), sequences, 1)).toEqual([]);
+    expect(canonicalFrameLayers(frameWith([layer("flatten-1", "prepared-1")]), sequences, 2)[0]?.frameUrl).toBe("/p/cache/2.png");
   });
 
   it("picks floor((t - start) * fps) clamped to the sequence", () => {
@@ -160,6 +163,23 @@ describe("canonical frame selection", () => {
 });
 
 describe("CanonicalFramePreloader", () => {
+  it("bounds stalled image admissions and ignores callbacks from cleared loads", () => {
+    const images: HTMLImageElement[] = [];
+    const preloader = new CanonicalFramePreloader(() => {
+      const image = document.createElement("img");
+      images.push(image);
+      return image;
+    });
+    preloader.preload(Array.from({ length: 1200 }, (_, index) => `/pending-${index}.png`));
+    expect(images).toHaveLength(480);
+    const oldLoaded = images[0]?.onload;
+    preloader.clear();
+    preloader.preload(["/pending-0.png"]);
+    oldLoaded?.call(images[0]!, new Event("load"));
+    expect(preloader.isLoaded("/pending-0.png")).toBe(false);
+    images.at(-1)?.onload?.(new Event("load"));
+    expect(preloader.isLoaded("/pending-0.png")).toBe(true);
+  });
   it("loads a URL once and evicts the oldest past 480 loaded URLs", () => {
     const images: HTMLImageElement[] = [];
     const preloader = new CanonicalFramePreloader(() => {

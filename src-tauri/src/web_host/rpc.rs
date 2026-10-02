@@ -4,7 +4,8 @@ use std::collections::BTreeSet;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::app_service::operation::AuthorizationScope;
+use crate::app_service::error::{ServiceError, ServiceErrorCode};
+use crate::app_service::operation::{AuthorizationScope, MutationClass, OperationDescriptor};
 
 use super::idempotency::{IdempotencyDecision, IdempotencyStore};
 use super::registry::{RegistryError, RpcRegistry};
@@ -35,6 +36,8 @@ pub enum RpcErrorCode {
     RateLimited,
     Busy,
     Internal,
+    OutcomeUnknown,
+    OutcomeExpired,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -110,11 +113,36 @@ pub enum SessionLimitError {
     Rate { retry_after_ms: u64 },
 }
 
+// Classify only the descriptor returned by registry validation; request names alone
+// cannot reserve cancellation capacity or bypass authorization/ownership checks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionRequestClass {
+    Read,
+    Mutation,
+    Cancellation,
+}
+
+impl SessionRequestClass {
+    fn for_operation(operation: &OperationDescriptor) -> Self {
+        if operation.mutation == MutationClass::JobMutation && operation.name.starts_with("cancel_")
+        {
+            Self::Cancellation
+        } else if operation.mutation == MutationClass::Read {
+            Self::Read
+        } else {
+            Self::Mutation
+        }
+    }
+}
+
 #[derive(Debug, Default)]
 struct SessionWindow {
     started_at: u64,
     request_count: usize,
+    read_count: usize,
+    cancellation_count: usize,
     in_flight: usize,
+    cancellation_in_flight: usize,
 }
 
 pub struct SessionLimiter {
@@ -135,10 +163,29 @@ impl SessionLimiter {
     }
 
     pub fn begin(&self, session_id: &str, now: u64) -> Result<SessionPermit, SessionLimitError> {
+        self.begin_classified(session_id, now, SessionRequestClass::Mutation)
+    }
+
+    fn begin_classified(
+        &self,
+        session_id: &str,
+        now: u64,
+        class: SessionRequestClass,
+    ) -> Result<SessionPermit, SessionLimitError> {
         let mut sessions = self
             .sessions
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Expired idle windows carry no active permit or current rate history.
+        // Ordinary and cancellation permits both keep their original entry alive.
+        sessions.retain(|_, window| {
+            window.in_flight != 0
+                || window.cancellation_in_flight != 0
+                || now.saturating_sub(window.started_at) < self.window_seconds
+        });
+        if !sessions.contains_key(session_id) && sessions.len() >= 2048 {
+            return Err(SessionLimitError::Concurrent);
+        }
         let window = sessions
             .entry(session_id.to_owned())
             .or_insert_with(|| SessionWindow {
@@ -148,11 +195,28 @@ impl SessionLimiter {
         if now.saturating_sub(window.started_at) >= self.window_seconds {
             window.started_at = now;
             window.request_count = 0;
+            window.read_count = 0;
+            window.cancellation_count = 0;
         }
-        if window.in_flight >= self.max_concurrent {
+        // Reads and ordinary mutations share the original concurrency bound.
+        // One independent cancellation slot remains available while those calls stall.
+        let cancellation = class == SessionRequestClass::Cancellation;
+        let at_capacity = if cancellation {
+            window.cancellation_in_flight >= 1
+        } else {
+            window.in_flight >= self.max_concurrent
+        };
+        if at_capacity {
             return Err(SessionLimitError::Concurrent);
         }
-        if window.request_count >= self.max_requests {
+        // Production uses a 60-second window: polling has 300 reads, ordinary
+        // mutations retain 60 requests, and cancellation has a finite 30-request reserve.
+        let (count, maximum) = match class {
+            SessionRequestClass::Read => (window.read_count, 300),
+            SessionRequestClass::Mutation => (window.request_count, self.max_requests),
+            SessionRequestClass::Cancellation => (window.cancellation_count, 30),
+        };
+        if count >= maximum {
             return Err(SessionLimitError::Rate {
                 retry_after_ms: window
                     .started_at
@@ -161,9 +225,18 @@ impl SessionLimiter {
                     .saturating_mul(1_000),
             });
         }
-        window.request_count += 1;
-        window.in_flight += 1;
+        match class {
+            SessionRequestClass::Read => window.read_count += 1,
+            SessionRequestClass::Mutation => window.request_count += 1,
+            SessionRequestClass::Cancellation => window.cancellation_count += 1,
+        }
+        if cancellation {
+            window.cancellation_in_flight += 1;
+        } else {
+            window.in_flight += 1;
+        }
         Ok(SessionPermit {
+            cancellation,
             session_id: session_id.to_owned(),
             sessions: Arc::clone(&self.sessions),
         })
@@ -172,6 +245,7 @@ impl SessionLimiter {
 
 #[derive(Debug)]
 pub struct SessionPermit {
+    cancellation: bool,
     session_id: String,
     sessions: Arc<Mutex<HashMap<String, SessionWindow>>>,
 }
@@ -183,13 +257,35 @@ impl Drop for SessionPermit {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(window) = sessions.get_mut(&self.session_id) {
-            window.in_flight = window.in_flight.saturating_sub(1);
+            if self.cancellation {
+                window.cancellation_in_flight = window.cancellation_in_flight.saturating_sub(1);
+            } else {
+                window.in_flight = window.in_flight.saturating_sub(1);
+            }
         }
     }
 }
 
 pub trait RpcDispatcher: Send + Sync {
     fn dispatch(&self, request: &RpcEnvelope) -> Result<Value, String>;
+
+    /// Only the host creation operation uses this server-reserved commit witness.
+    fn dispatch_with_creation_nonce(
+        &self,
+        request: &RpcEnvelope,
+        _nonce: Option<&str>,
+    ) -> Result<Value, ServiceError> {
+        self.dispatch_typed(request)
+    }
+
+    fn recover_durable_creation(&self, _nonce: &str) -> Option<Value> {
+        None
+    }
+
+    /// Incremental typed application boundary for migrated operation slices.
+    fn dispatch_typed(&self, request: &RpcEnvelope) -> Result<Value, ServiceError> {
+        self.dispatch(request).map_err(ServiceError::internal)
+    }
 }
 
 pub struct RpcEngine {
@@ -197,6 +293,7 @@ pub struct RpcEngine {
     idempotency: IdempotencyStore,
     limiter: SessionLimiter,
     dispatcher: Arc<dyn RpcDispatcher>,
+    outcomes: Option<Arc<super::request_outcome::RequestOutcomeStore>>,
 }
 
 impl RpcEngine {
@@ -206,12 +303,58 @@ impl RpcEngine {
             idempotency: IdempotencyStore::new(512, 300),
             limiter: SessionLimiter::new(60, 4, 60),
             dispatcher,
+            outcomes: None,
         }
+    }
+
+    pub fn with_outcome_store(
+        dispatcher: Arc<dyn RpcDispatcher>,
+        store: Arc<super::request_outcome::RequestOutcomeStore>,
+    ) -> Self {
+        Self {
+            outcomes: Some(store),
+            ..Self::new(dispatcher)
+        }
+    }
+
+    pub(super) fn outcome_permit(
+        &self,
+        session_id: &str,
+        now: u64,
+    ) -> Result<SessionPermit, SessionLimitError> {
+        self.limiter
+            .begin_classified(session_id, now, SessionRequestClass::Read)
+    }
+
+    pub fn resolve_outcome(
+        &self,
+        principal: &str,
+        request_id: &str,
+    ) -> Result<super::request_outcome::RequestOutcome, super::request_outcome::OutcomeError> {
+        super::durable_rpc::resolve(
+            self.outcomes
+                .as_ref()
+                .ok_or(super::request_outcome::OutcomeError::Unavailable)?,
+            principal,
+            request_id,
+            &self.dispatcher,
+        )
     }
 
     pub fn execute(
         &self,
         session_id: &str,
+        scopes: &BTreeSet<AuthorizationScope>,
+        body: &[u8],
+        now: u64,
+    ) -> RpcResponse {
+        self.execute_for_principal(session_id, session_id, scopes, body, now)
+    }
+
+    pub fn execute_for_principal(
+        &self,
+        session_id: &str,
+        principal: &str,
         scopes: &BTreeSet<AuthorizationScope>,
         body: &[u8],
         now: u64,
@@ -243,11 +386,15 @@ impl RpcEngine {
                 None,
             );
         }
-        if let Err(error) = self.registry.validate(&request, scopes, body.len()) {
-            let (code, message) = registry_error(error);
-            return RpcResponse::error(&request.request_id, code, message, None);
-        }
-        let _permit = match self.limiter.begin(session_id, now) {
+        let operation = match self.registry.validate(&request, scopes, body.len()) {
+            Ok(operation) => operation,
+            Err(error) => {
+                let (code, message) = registry_error(error);
+                return RpcResponse::error(&request.request_id, code, message, None);
+            }
+        };
+        let class = SessionRequestClass::for_operation(operation);
+        let _permit = match self.limiter.begin_classified(session_id, now, class) {
             Ok(permit) => permit,
             Err(SessionLimitError::Concurrent) => {
                 return RpcResponse::error(
@@ -266,41 +413,69 @@ impl RpcEngine {
                 )
             }
         };
-        let dispatched = self.idempotency.execute_once(
-            session_id,
-            &request.request_id,
-            body,
-            now,
-            || match self.dispatcher.dispatch(&request) {
+        let dispatch = || {
+            let action = |nonce: Option<&str>| match self
+                .dispatcher
+                .dispatch_with_creation_nonce(&request, nonce)
+            {
                 Ok(result) => RpcResponse::success(&request.request_id, result),
-                Err(error) if error.contains("revision conflict") => RpcResponse::error(
-                    &request.request_id,
-                    RpcErrorCode::Conflict,
-                    "project revision conflict",
-                    None,
-                ),
                 Err(error) => {
-                    eprintln!(
-                        "video-creater-host: operation {} failed: {}",
-                        request.operation,
-                        redact_dispatch_error(&error)
-                    );
-                    RpcResponse::error(
-                        &request.request_id,
-                        RpcErrorCode::Internal,
-                        "operation failed internally",
-                        None,
-                    )
+                    let code = service_error_rpc_code(error.code());
+                    if let Some(detail) = error.internal_detail() {
+                        eprintln!(
+                            "video-creater-host: operation {} failed: {}",
+                            request.operation,
+                            redact_dispatch_error(detail)
+                        );
+                    }
+                    RpcResponse::error(&request.request_id, code, error.to_string(), None)
                 }
-            },
-        );
+            };
+            match self
+                .outcomes
+                .as_ref()
+                .filter(|_| class != SessionRequestClass::Read)
+            {
+                Some(store) => super::durable_rpc::dispatch(
+                    store,
+                    super::durable_rpc::DispatchContext {
+                        principal,
+                        request: &request,
+                        body,
+                        now,
+                    },
+                    &self.dispatcher,
+                    action,
+                ),
+                None => action(None),
+            }
+        };
+        let dispatched = if class == SessionRequestClass::Cancellation {
+            self.idempotency.execute_once_cancellation(
+                session_id,
+                &request.request_id,
+                body,
+                now,
+                dispatch,
+            )
+        } else {
+            self.idempotency
+                .execute_once(session_id, &request.request_id, body, now, dispatch)
+        };
         match dispatched {
-            Ok(response) | Err(IdempotencyDecision::Replay(response)) => response,
+            Ok(response) => response,
+            Err(IdempotencyDecision::Replay(response)) => *response,
             Err(IdempotencyDecision::PayloadConflict) => RpcResponse::error(
                 &request.request_id,
                 RpcErrorCode::Conflict,
                 "request ID was already used with a different payload",
                 None,
+            ),
+            Err(IdempotencyDecision::Capacity) => RpcResponse::error(
+                &request.request_id,
+                RpcErrorCode::Busy,
+                "too many pending cancellation requests",
+                Some(250),
             ),
             Err(IdempotencyDecision::New) => RpcResponse::error(
                 &request.request_id,
@@ -336,3 +511,65 @@ fn registry_error(error: RegistryError) -> (RpcErrorCode, &'static str) {
         ),
     }
 }
+
+fn service_error_rpc_code(code: ServiceErrorCode) -> RpcErrorCode {
+    match code {
+        ServiceErrorCode::InvalidInput => RpcErrorCode::InvalidRequest,
+        ServiceErrorCode::Unauthorized => RpcErrorCode::Unauthorized,
+        ServiceErrorCode::Forbidden => RpcErrorCode::Forbidden,
+        ServiceErrorCode::NotFound => RpcErrorCode::NotFound,
+        ServiceErrorCode::RevisionConflict | ServiceErrorCode::LeaseConflict => {
+            RpcErrorCode::Conflict
+        }
+        ServiceErrorCode::Busy => RpcErrorCode::Busy,
+        ServiceErrorCode::UnavailableCapability
+        | ServiceErrorCode::Cancelled
+        | ServiceErrorCode::Internal => RpcErrorCode::Internal,
+    }
+}
+
+#[cfg(test)]
+mod typed_error_tests {
+    use super::*;
+    use serde_json::json;
+
+    struct ConflictDispatcher;
+    impl RpcDispatcher for ConflictDispatcher {
+        fn dispatch(&self, _request: &RpcEnvelope) -> Result<Value, String> {
+            Err("unexpected diagnostic mentions revision conflict".into())
+        }
+        fn dispatch_typed(&self, request: &RpcEnvelope) -> Result<Value, ServiceError> {
+            if request.request_id == "typed-conflict" {
+                Err(ServiceError::revision_conflict(1, 2))
+            } else {
+                self.dispatch(request).map_err(ServiceError::internal)
+            }
+        }
+    }
+
+    #[test]
+    fn rpc_maps_typed_conflicts_without_matching_diagnostic_strings() {
+        let engine = RpcEngine::new(Arc::new(ConflictDispatcher));
+        let scopes = BTreeSet::from([AuthorizationScope::ProjectRead]);
+        for (id, expected) in [
+            ("typed-conflict", RpcErrorCode::Conflict),
+            ("internal-detail", RpcErrorCode::Internal),
+        ] {
+            let body = serde_json::to_vec(&RpcEnvelope {
+                request_id: id.into(),
+                operation: "load_job_progress_from_split_project_folder".into(),
+                project_id: Some("project-test".into()),
+                expected_revision: None,
+                editor_lease_token: None,
+                payload: json!({}),
+            })
+            .unwrap();
+            let response = engine.execute("session", &scopes, &body, 1);
+            assert_eq!(response.error.unwrap().code, expected);
+        }
+    }
+}
+
+#[cfg(test)]
+#[path = "rpc_limiter_tests.rs"]
+mod limiter_tests;

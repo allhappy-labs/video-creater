@@ -3,6 +3,7 @@ import { stat } from "node:fs/promises";
 import {
   exportAndDownload,
   pairAndCreate,
+  reconcileUnconfirmedEdit,
   uploadVideoAndApplyAgent,
   waitForHostRenderEvidence,
 } from "./support/remote-host";
@@ -26,6 +27,7 @@ test("real remote host completes edit, reconnect, render, and download", async (
     .getByRole("button", { name: "Open project" })
     .click();
   await expect(page.getByText(/00:00:00\.(?:799|8)/)).toBeVisible();
+  await reconcileUnconfirmedEdit(page);
 
   const artifact = await exportAndDownload(page, "Desktop remote acceptance", {
     disconnectDuringRender: true,

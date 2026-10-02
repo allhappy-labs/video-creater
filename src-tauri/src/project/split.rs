@@ -781,6 +781,8 @@ pub enum SplitProjectError {
         "project revision conflict: expected revision {expected}, but canonical revision is {actual}"
     )]
     RevisionConflict { expected: u64, actual: u64 },
+    #[error("canonical project identity does not match the authorized project")]
+    ProjectIdentityMismatch,
     #[error("split project contains a writable directory symlink at {path}")]
     UnsafeProjectSymlink { path: String },
     #[error("split project io error at {path}: {message}")]
@@ -1953,8 +1955,27 @@ fn canonicalize_project_for_split_save(project: &mut VideoProject) {
 
 pub fn replace_split_project_if_revision(
     project_dir: &Path,
+    replacement: VideoProject,
+    expected_revision: u64,
+) -> Result<ProjectActionWriteResult, SplitProjectError> {
+    replace_split_project_if_revision_impl(project_dir, replacement, expected_revision, false)
+}
+
+/// Restores a canonical snapshot without allowing project creation. Existence, identity and
+/// revision are checked together under the same mutation lease, including revision-zero packages.
+pub fn replace_existing_split_project_if_revision(
+    project_dir: &Path,
+    replacement: VideoProject,
+    expected_revision: u64,
+) -> Result<ProjectActionWriteResult, SplitProjectError> {
+    replace_split_project_if_revision_impl(project_dir, replacement, expected_revision, true)
+}
+
+fn replace_split_project_if_revision_impl(
+    project_dir: &Path,
     mut replacement: VideoProject,
     expected_revision: u64,
+    require_existing: bool,
 ) -> Result<ProjectActionWriteResult, SplitProjectError> {
     let _lease = split_project_mutation_lease(project_dir)?;
     let _ = recover_pending_split_project_transaction(project_dir)?;
@@ -1964,6 +1985,15 @@ pub fn replace_split_project_if_revision(
     } else {
         None
     };
+    if require_existing && canonical.is_none() {
+        return Err(SplitProjectError::ProjectIdentityMismatch);
+    }
+    if canonical
+        .as_ref()
+        .is_some_and(|project| project.id != replacement.id)
+    {
+        return Err(SplitProjectError::ProjectIdentityMismatch);
+    }
     let actual_revision = canonical
         .as_ref()
         .map(|project| project.content_revision)
@@ -3445,6 +3475,30 @@ pub fn apply_project_actions_to_split_project(
     apply_project_actions_to_split_project_with_lease(project_dir, actions, &lease)
 }
 
+/// Checks authorization identity and revision while owning the same lease as the write.
+/// Action validation happens only after the preconditions pass; a failed batch never persists.
+pub fn apply_project_actions_to_split_project_if_revision(
+    project_dir: &Path,
+    actions: Vec<ProjectAction>,
+    expected_project_id: &str,
+    expected_revision: u64,
+) -> Result<ProjectActionWriteResult, SplitProjectError> {
+    let lease = split_project_mutation_lease(project_dir)?;
+    validate_split_project_write_path(project_dir, &split_project_manifest_path(project_dir))?;
+    let _ = recover_pending_split_project_transaction(project_dir)?;
+    let project = load_split_project_without_recovery(project_dir)?;
+    if project.id != expected_project_id {
+        return Err(SplitProjectError::ProjectIdentityMismatch);
+    }
+    if project.content_revision != expected_revision {
+        return Err(SplitProjectError::RevisionConflict {
+            expected: expected_revision,
+            actual: project.content_revision,
+        });
+    }
+    apply_actions_to_loaded_split_project(project_dir, project, actions, &lease)
+}
+
 #[cfg(test)]
 fn apply_project_actions_to_split_project_with_transaction_hook(
     project_dir: &Path,
@@ -3465,9 +3519,53 @@ fn apply_project_actions_to_split_project_with_transaction_hook(
 pub(crate) fn apply_project_actions_to_split_project_with_lease(
     project_dir: &Path,
     actions: Vec<ProjectAction>,
+    lease: &SplitProjectMutationLease,
+) -> Result<ProjectActionWriteResult, SplitProjectError> {
+    let project = load_split_project(project_dir)?;
+    apply_actions_to_loaded_split_project(project_dir, project, actions, lease)
+}
+
+/// Persist render bookkeeping without advancing the editor's content revision.
+/// Only an internally generated canonical-preview job may be recorded here; durable
+/// render admission and timeline/settings/media changes use the revision-checked path.
+/// The caller owns mutation ownership across package/attempt checks and this commit.
+pub(crate) fn apply_project_bookkeeping_actions_to_split_project_with_lease(
+    project_dir: &Path,
+    actions: Vec<ProjectAction>,
     _lease: &SplitProjectMutationLease,
 ) -> Result<ProjectActionWriteResult, SplitProjectError> {
+    if !actions.iter().all(|action| {
+        matches!(action, ProjectAction::RecordJob { job } if job.kind == "captureCanonicalPreviewFrame")
+            || matches!(
+            action,
+            ProjectAction::UpdateJobStatus { .. }
+                | ProjectAction::AttachRenderReport { .. }
+                | ProjectAction::RecordExportArtifact { .. }
+        )
+    }) {
+        return Err(SplitProjectError::ProjectAction {
+            message: "render bookkeeping only accepts canonical-preview jobs, job status, render report and export artifact actions".into(),
+        });
+    }
     let mut project = load_split_project(project_dir)?;
+    for action in actions {
+        apply_project_action(&mut project, action).map_err(|error| {
+            SplitProjectError::ProjectAction {
+                message: error.to_string(),
+            }
+        })?;
+    }
+    let report =
+        save_split_project_metadata_transactionally(project_dir, &project, &mut |_| Ok(()))?;
+    Ok(ProjectActionWriteResult { project, report })
+}
+
+fn apply_actions_to_loaded_split_project(
+    project_dir: &Path,
+    mut project: VideoProject,
+    actions: Vec<ProjectAction>,
+    _lease: &SplitProjectMutationLease,
+) -> Result<ProjectActionWriteResult, SplitProjectError> {
     for action in actions {
         apply_project_action(&mut project, action).map_err(|error| {
             SplitProjectError::ProjectAction {

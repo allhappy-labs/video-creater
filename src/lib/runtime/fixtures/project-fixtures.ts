@@ -179,19 +179,24 @@ function writeResult(project: VideoProject): ProjectActionWriteResult {
 }
 
 export function projectFixtureOperations(store: FixtureProjectStore): ReadonlyMap<string, FixtureOperationHandler> {
+  function checkRevision(input: Record<string, unknown>) {
+    if (input.expectedRevision !== undefined && input.expectedRevision !== (store.require().contentRevision ?? 0)) throw new Error("Project revision conflict");
+  }
   return new Map<string, FixtureOperationHandler>([
     ["materialize_sample_project_media", () => undefined],
     [
       "save_split_project_to_folder",
       (input) => {
-        const { project, projectDir = "", expectedRevision } = input as { project?: VideoProject; projectDir?: string; expectedRevision?: number };
+        const { project, projectDir = "", expectedRevision, activateProject } = input as { project?: VideoProject; projectDir?: string; expectedRevision?: number; activateProject?: boolean };
         if (!project) throw "missing field `project`";
+        if (activateProject === false) store.require();
         return writeResult(store.save(project, projectDir, expectedRevision));
       },
     ],
     ["load_split_project_from_folder", () => store.reload()],
-    ["apply_project_actions_to_split_project_folder", (input) => writeResult(store.apply((input as { actions: ProjectAction[] }).actions))],
-    ["apply_project_action_to_split_project_folder", (input) => writeResult(store.apply([(input as { action: ProjectAction }).action]))],
+    ["read_project_snapshot_from_split_project_folder", () => store.reload()],
+    ["apply_project_actions_to_split_project_folder", (input) => { checkRevision(input); return writeResult(store.apply((input as { actions: ProjectAction[] }).actions)); }],
+    ["apply_project_action_to_split_project_folder", (input) => { checkRevision(input); return writeResult(store.apply([(input as { action: ProjectAction }).action])); }],
     [
       "update_project_settings_in_split_project_folder",
       (input) => {

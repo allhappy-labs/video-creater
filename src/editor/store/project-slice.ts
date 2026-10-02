@@ -1,14 +1,15 @@
 import { applyProjectActionsLocally } from "@/lib/agent/project-merge";
+import { mergeJobState } from "@/lib/jobs/merge-job-state";
 import {
   applyProjectActionsToSplitProjectFolder,
   saveSplitProjectToFolder,
   type ProjectAction,
   type VideoProject,
 } from "@/lib/project";
-import { isBackendUnavailableError } from "@/lib/runtime/backend-transport";
+import { isBackendUnavailableError, isUnknownRemoteOutcome } from "@/lib/runtime/backend-transport";
 import type { EditorSliceCreator } from "./editor-store";
 
-const maxUndoSnapshots = 100;
+import { boundHistory } from "./history-budget";
 
 const nonUndoableActionTypes: ReadonlySet<ProjectAction["type"]> = new Set<ProjectAction["type"]>([
   "recordJob",
@@ -21,7 +22,7 @@ const nonUndoableActionTypes: ReadonlySet<ProjectAction["type"]> = new Set<Proje
   "updateGeneratedAssetStatus",
 ]);
 
-export type SaveStatus = "saved" | "saving" | "unsaved" | "failed";
+export type SaveStatus = "saved" | "saving" | "unsaved" | "failed" | "uncertain";
 
 /** Who made the newest undoable change: a local edit (snapshot history) or an agent batch. */
 type MutationSource = "user" | "agent";
@@ -72,6 +73,8 @@ export interface ProjectSlice {
   canUndo(): boolean;
   canRedo(): boolean;
   replaceProject(project: VideoProject): void;
+  /** Installs an explicitly refreshed canonical snapshot after a lost remote response. */
+  installReconciledProject(project: VideoProject): Promise<void>;
   /**
    * Commits polled worker state (jobs, generated assets, reports) without an undo step. It waits for
    * pending writes so it never lands under an edit in flight, and resolves false when `base` is stale.
@@ -115,9 +118,10 @@ function undoState(history: ProjectHistory, agentEdits: readonly AgentEditMarker
 /** Records a local snapshot; markers shift down with snapshots dropped past the cap. */
 function pushPast(state: Pick<ProjectSlice, "history" | "agentEdits">, snapshot: VideoProject) {
   const past = [...state.history.past, structuredClone(snapshot)];
-  const dropped = Math.max(0, past.length - maxUndoSnapshots);
+  const bounded = boundHistory(past, []);
+  const dropped = bounded.droppedPast;
   const agentEdits = dropped === 0 ? state.agentEdits : state.agentEdits.map((edit) => ({ ...edit, depth: Math.max(0, edit.depth - dropped) }));
-  return undoState({ past: past.slice(dropped), future: [] }, agentEdits);
+  return undoState({ past: bounded.past, future: [] }, agentEdits);
 }
 
 function revisionOf(project: VideoProject): number {
@@ -144,7 +148,7 @@ export function createProjectSlice(init: {
       const { projectDir } = get();
       if (!usesSplitFolder(snapshot, projectDir)) return { project: snapshot, saveStatus: "unsaved" };
       try {
-        const result = await saveSplitProjectToFolder({ projectDir, project: snapshot, expectedRevision });
+        const result = await saveSplitProjectToFolder({ projectDir, project: snapshot, expectedRevision, activateProject: false });
         return { project: result.project, saveStatus: "saved" };
       } catch (error) {
         if (isBackendUnavailableError(error)) return { project: snapshot, saveStatus: "unsaved" };
@@ -170,7 +174,7 @@ export function createProjectSlice(init: {
           try {
             if (!usesSplitFolder(base, projectDir)) throw new LocalOnlyProject();
             set({ saveStatus: "saving" });
-            const result = await applyProjectActionsToSplitProjectFolder({ projectDir, actions: [...actions] });
+            const result = await applyProjectActionsToSplitProjectFolder({ projectDir, actions: [...actions], expectedRevision: base.contentRevision ?? 0 });
             set((state) => ({ project: result.project, saveStatus: "saved", ...(record ? pushPast(state, base) : {}) }));
             if (record) get().clearHighlights();
             return result.project;
@@ -185,7 +189,7 @@ export function createProjectSlice(init: {
               if (record) get().clearHighlights();
               return next;
             }
-            set({ saveStatus: "failed", lastError: errorMessage(error) });
+            set({ saveStatus: isUnknownRemoteOutcome(error) ? "uncertain" : "failed", lastError: errorMessage(error) });
             return null;
           }
         });
@@ -204,17 +208,17 @@ export function createProjectSlice(init: {
           if (!previous) return;
           try {
             const restored = await persistSnapshot(previous, project.contentRevision ?? 0);
-            const nextHistory = { past: history.past.slice(0, -1), future: [structuredClone(project), ...history.future] };
+            const nextHistory = boundHistory(history.past.slice(0, -1), [structuredClone(project), ...history.future]);
             set({
               project: restored.project,
               saveStatus: restored.saveStatus,
               // A marker above the remaining snapshots was reverted by this restore, so it is unreachable.
-              ...undoState(nextHistory, edits.filter((edit) => edit.depth <= nextHistory.past.length)),
+              ...undoState(nextHistory, edits.map((edit) => ({ ...edit, depth: Math.max(0, edit.depth - nextHistory.droppedPast) })).filter((edit) => edit.depth <= nextHistory.past.length)),
               lastError: null,
             });
             get().clearHighlights();
           } catch (error) {
-            set({ saveStatus: "failed", lastError: errorMessage(error) });
+            set({ saveStatus: isUnknownRemoteOutcome(error) ? "uncertain" : "failed", lastError: errorMessage(error) });
           }
         });
       },
@@ -226,15 +230,16 @@ export function createProjectSlice(init: {
           if (!next) return;
           try {
             const restored = await persistSnapshot(next, project.contentRevision ?? 0);
+            const bounded = boundHistory([...history.past, structuredClone(project)], history.future.slice(1));
             set((state) => ({
               project: restored.project,
               saveStatus: restored.saveStatus,
-              ...undoState({ past: [...history.past, structuredClone(project)], future: history.future.slice(1) }, state.agentEdits),
+              ...undoState(bounded, state.agentEdits.map((edit) => ({ ...edit, depth: Math.max(0, edit.depth - bounded.droppedPast) }))),
               lastError: null,
             }));
             get().clearHighlights();
           } catch (error) {
-            set({ saveStatus: "failed", lastError: errorMessage(error) });
+            set({ saveStatus: isUnknownRemoteOutcome(error) ? "uncertain" : "failed", lastError: errorMessage(error) });
           }
         });
       },
@@ -246,6 +251,23 @@ export function createProjectSlice(init: {
         // The store subscription prunes on identity changes; prune here too so replacing with
         // the same (mutated) project object still drops stale selection.
         get().pruneSelection(project);
+      },
+      installReconciledProject(project) {
+        return enqueue(async () => {
+          const current = get().project;
+          if (project.id !== current.id) throw new Error("The canonical snapshot belongs to a different project. Reopen the project before reconciling.");
+          if (revisionOf(project) < revisionOf(current)) {
+            // A write or polling snapshot may have installed newer canonical content while
+            // reconciliation was in flight. Resolve uncertainty without reverting it or history.
+            set({ saveStatus: "saved", lastError: null });
+            return;
+          }
+          const sameRevision = revisionOf(project) === revisionOf(current);
+          const reconciled = sameRevision ? mergeJobState(current, project).project : project;
+          set((state) => ({ project: reconciled, saveStatus: "saved", lastError: null, history: sameRevision ? state.history : { past: state.history.past, future: [] } }));
+          get().pruneSelection(reconciled);
+          get().clearHighlights();
+        });
       },
       mergeExternalState(merged, { externalChange, base }) {
         return enqueue(async () => {

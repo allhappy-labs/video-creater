@@ -151,7 +151,7 @@ test.describe("phone", () => {
     const crossfade = badge(page, "Crossfade transition, 0.5s");
     await expect(crossfade).toBeVisible();
     await expect(crossfade).toHaveAttribute("aria-pressed", "true");
-    await expect(clipTools.getByRole("button")).toHaveText(["", "Type", "Duration", "Delete"]);
+    await expect(clipTools.getByRole("button")).toHaveText(["Tools", "Type", "Duration", "Delete"]);
     const fits = await clipTools.evaluate((toolbar) => toolbar.scrollWidth <= toolbar.clientWidth && toolbar.getBoundingClientRect().right <= 402);
     expect(fits).toBe(true);
     await page.screenshot({ path: testInfo.outputPath("transitions-badge-tools-phone.png") });

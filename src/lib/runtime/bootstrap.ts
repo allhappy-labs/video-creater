@@ -96,7 +96,7 @@ export async function bootstrapRuntime(): Promise<RuntimeDescriptor> {
     runtime = session.kind === "connected"
       ? createRuntimeDescriptor("browser", {
           status: "connected",
-          transport: new RemoteTransport({ csrfToken: session.csrfToken }),
+          transport: new RemoteTransport({ csrfToken: session.csrfToken, hostLabel: session.hostLabel, outcomeProtocol: session.outcomeProtocol }),
         }, session)
       : createRuntimeDescriptor("browser", { status: "disconnected" }, session);
   }

@@ -27,7 +27,22 @@ export default defineConfig({
     host: "127.0.0.1",
     // Cargo's build output holds hundreds of thousands of files; watching it exhausts inotify watchers
     // and crashes the dev server (and the Playwright web server) mid-run.
-    watch: { ignored: ["**/src-tauri/target/**"] },
+    watch: { ignored: ["**/src-tauri/target/**", "**/output/**"] },
+  },
+  // Only the real app is a scan entry; generated HTML is not executable app source.
+  // Eager coverage keeps a valid Home-only cache from adding another React bundle on navigation.
+  optimizeDeps: {
+    entries: ["index.html"],
+    include: [
+      "react-dom/client",
+      "@radix-ui/react-context-menu", "@radix-ui/react-dialog",
+      "@radix-ui/react-dropdown-menu", "@radix-ui/react-popover",
+      "@radix-ui/react-select", "@radix-ui/react-slider", "@radix-ui/react-switch",
+      "@radix-ui/react-tabs", "@radix-ui/react-toast", "@radix-ui/react-toggle-group",
+      "@radix-ui/react-tooltip",
+      "@tauri-apps/api/core", "@tauri-apps/api/event", "@tauri-apps/api/webview",
+      "@tauri-apps/plugin-dialog", "zustand", "zustand/vanilla",
+    ],
   },
   envPrefix: ["VITE_", "TAURI_"],
   resolve: {

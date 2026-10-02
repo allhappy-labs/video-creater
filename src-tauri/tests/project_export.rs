@@ -40,6 +40,8 @@ use video_creater_lib::render_pipeline::report::{
 };
 use video_creater_lib::render_runtime::start_render_process_runtime;
 
+#[path = "project_export/admitted_jobs.rs"]
+mod admitted_jobs;
 #[path = "project_export/export_workflow_completion.rs"]
 mod export_workflow_completion;
 #[path = "project_export/named_exports.rs"]

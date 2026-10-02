@@ -6,7 +6,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
 use thiserror::Error;
 
@@ -16,6 +15,19 @@ use crate::project::model::{ProjectExportArtifact, ProjectExportArtifactKind};
 const MAX_EXPORT_NAME_BYTES: usize = 180;
 const MAX_COLLISION_SUFFIX: u32 = 999;
 const PROJECT_EXPORTS_DIR: &str = "exports";
+
+#[cfg(unix)]
+mod prepared;
+#[cfg(not(unix))]
+#[path = "export_destination/portable.rs"]
+mod prepared;
+#[cfg(unix)]
+mod relative;
+pub(crate) use prepared::prepare_export_output_cancellable;
+pub use prepared::{
+    prepare_export_output, remove_export_output_if_owned, ExportPublicationOwner,
+    PreparedExportOutput,
+};
 
 /// The file name and folder the user chose for an export.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -50,6 +62,8 @@ pub enum ExportDestinationError {
     NoFreeName,
     #[error("The rendered file is empty, so there is nothing to save.")]
     EmptySource,
+    #[error("Export was cancelled.")]
+    Cancelled,
     #[error("This format doesn't save a video file.")]
     UnsupportedProfile,
     #[error("The export couldn't be saved: {0}")]
@@ -271,83 +285,7 @@ fn materialize_export_output_with_hook(
     request: ExportMaterialization<'_>,
     before_link: &mut dyn FnMut(&Path),
 ) -> Result<MaterializedExport, ExportDestinationError> {
-    let ExportMaterialization {
-        destination,
-        source,
-        job_id,
-        link_policy,
-    } = request;
-    let source_len = fs::metadata(source)?.len();
-    if source_len == 0 {
-        return Err(ExportDestinationError::EmptySource);
-    }
-    if destination.inside_project_exports {
-        fs::create_dir_all(&destination.directory)?;
-    } else if !destination.directory.is_dir() {
-        return Err(ExportDestinationError::MissingDirectory);
-    }
-
-    if link_policy == LinkPolicy::Auto {
-        match link_to_free_name(destination, source, before_link)? {
-            LinkOutcome::Linked(file_name, path) => {
-                return Ok(materialized(destination, &file_name, path))
-            }
-            LinkOutcome::Unsupported => {}
-        }
-    }
-
-    let staging = StagingFile(destination.directory.join(format!(
-        ".{}.{}.partial",
-        destination.stem,
-        staging_job_segment(job_id)
-    )));
-    if fs::symlink_metadata(&staging.0).is_ok() {
-        fs::remove_file(&staging.0)?;
-    }
-    let copied = fs::copy(source, &staging.0)?;
-    if copied != source_len || fs::metadata(&staging.0)?.len() != source_len {
-        return Err(ExportDestinationError::Io(
-            "the copied export doesn't match the rendered file".to_string(),
-        ));
-    }
-    match link_to_free_name(destination, &staging.0, before_link)? {
-        LinkOutcome::Linked(file_name, path) => Ok(materialized(destination, &file_name, path)),
-        LinkOutcome::Unsupported => {
-            // This filesystem has no hard links, so there is no atomic
-            // no-clobber rename. A file created between the existence check
-            // and the rename could be replaced; the window is a few syscalls.
-            for (file_name, path) in destination.free_candidates() {
-                before_link(&path);
-                if fs::symlink_metadata(&path).is_ok() {
-                    continue;
-                }
-                fs::rename(&staging.0, &path)?;
-                return Ok(materialized(destination, &file_name, path));
-            }
-            Err(ExportDestinationError::NoFreeName)
-        }
-    }
-}
-
-enum LinkOutcome {
-    Linked(String, PathBuf),
-    Unsupported,
-}
-
-fn link_to_free_name(
-    destination: &ExportDestination,
-    source: &Path,
-    before_link: &mut dyn FnMut(&Path),
-) -> Result<LinkOutcome, ExportDestinationError> {
-    for (file_name, path) in destination.free_candidates() {
-        before_link(&path);
-        match fs::hard_link(source, &path) {
-            Ok(()) => return Ok(LinkOutcome::Linked(file_name, path)),
-            Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
-            Err(_) => return Ok(LinkOutcome::Unsupported),
-        }
-    }
-    Err(ExportDestinationError::NoFreeName)
+    prepare_export_output(request)?.publish_with_hook(before_link)
 }
 
 fn materialized(
@@ -358,30 +296,6 @@ fn materialized(
     MaterializedExport {
         recorded_path: destination.recorded_path(file_name),
         absolute_path: path,
-    }
-}
-
-fn staging_job_segment(job_id: &str) -> String {
-    job_id
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || character == '-' || character == '_' {
-                character
-            } else {
-                '-'
-            }
-        })
-        .take(48)
-        .collect()
-}
-
-/// Removes the staging copy on every exit path; a completed rename leaves
-/// nothing to remove.
-struct StagingFile(PathBuf);
-
-impl Drop for StagingFile {
-    fn drop(&mut self) {
-        let _ = fs::remove_file(&self.0);
     }
 }
 

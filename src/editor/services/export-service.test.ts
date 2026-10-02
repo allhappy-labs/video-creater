@@ -33,7 +33,7 @@ function setup(handlers: Record<string, Handler> = {}, backendPreference: "inPro
       backend.project = applyProjectActionsLocally(backend.project, input.actions as ProjectAction[]);
       return { project: backend.project };
     },
-    load_split_project_from_folder: () => backend.project,
+    read_project_snapshot_from_split_project_folder: () => backend.project,
     reveal_export_artifact_in_split_project_folder: () => undefined,
     ...handlers,
   };
@@ -126,6 +126,30 @@ describe("export service", () => {
     expect(calls("load_render_pipeline_report_from_split_project_folder")).toHaveLength(0);
     // An older backend records no export artifact: Show reveals the render report's recorded output.
     await expect(showInFolder(store)).resolves.toEqual({ projectDir, artifactPath: `renders/${jobId}/output.mp4` });
+  });
+
+  it("installs the admitted revision before waiting for render completion", async () => {
+    const outcome = deferred<unknown>();
+    let closing = false;
+    const { backend, store, service, plan } = setup({
+      render_media_to_split_project_folder: (input) => {
+        backend.project = { ...withJob(backend.project, job(input.jobId as string, "render_draft", "queued")), contentRevision: 4 };
+        return { admissionProtocol: 1, project: backend.project, sourceRevision: 3, jobId: input.jobId, attemptId: input.attemptId };
+      },
+      load_render_attempt_in_split_project_folder: () => outcome.promise,
+      read_project_snapshot_from_split_project_folder: () => closing ? backend.project : new Promise(() => undefined),
+    });
+    const exported = service.exportVideo(plan);
+    try {
+      await vi.waitFor(() => expect(store.getState().project.contentRevision).toBe(4));
+      await store.getState().applyActions([{ type: "updateProjectSettings", name: "Edit during render", renderSettings: backend.project.renderSettings }]);
+      expect(calls("apply_project_actions_to_split_project_folder").at(-1)?.[1]).toMatchObject({ expectedRevision: 4 });
+    } finally {
+      closing = true;
+      outcome.resolve({ status: "failed", message: "Stopped test render", interrupted: false });
+      await exported;
+      store.getState().stopPolling();
+    }
   });
 
   it("toasts and reveals the saved export file an in-process export records", async () => {

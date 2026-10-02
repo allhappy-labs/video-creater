@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 
 describe("DeepFilterNet3 audio enhancer package", () => {
-  it("pins Palmier's reviewed speech-swift runtime and packages the native helper", () => {
+  it("pins Palmier's reviewed speech-swift runtime and packages the native helper", async () => {
     const swiftPackage = readFileSync("src-tauri/native/audio-enhance/Package.swift", "utf8");
     const helper = readFileSync("src-tauri/native/audio-enhance/Sources/main.swift", "utf8");
     const tauri = JSON.parse(readFileSync("src-tauri/tauri.conf.json", "utf8")) as {
@@ -24,12 +26,11 @@ describe("DeepFilterNet3 audio enhancer package", () => {
     expect(helper).toContain("wetSample * Float(arguments.strength)");
     expect(tauri.bundle.externalBin).toContain("binaries/video-creater-audio-enhance");
     expect(tauri.build.beforeBuildCommand).toContain("build:audio-enhancer");
-    expect(packageJson.scripts["prepare:tauri:dev"]).toContain(
-      "build:audio-enhancer:dev",
-    );
+    const { helperPreparationPlan } = await import(/* @vite-ignore */ pathToFileURL(resolve("scripts/prepare-desktop-development.mjs")).href) as { helperPreparationPlan(platform: string): string[][] };
+    expect(packageJson.scripts["prepare:tauri:dev"]).toBe("node scripts/prepare-desktop-development.mjs --platform darwin");
+    expect(helperPreparationPlan("darwin")).toContainEqual(["pnpm", "build:audio-enhancer:dev"]);
     expect(packageJson.scripts["tauri:dev"]).toBe("node scripts/tauri-dev.mjs");
-    expect(packageJson.scripts["prepare:tauri:dev:linux"]).toContain(
-      "build:linux-audio-enhancer:dev",
-    );
+    expect(packageJson.scripts["prepare:tauri:dev:linux"]).toBe("node scripts/prepare-desktop-development.mjs --platform linux");
+    expect(helperPreparationPlan("linux")).toContainEqual(["pnpm", "build:linux-audio-enhancer:dev"]);
   });
 });

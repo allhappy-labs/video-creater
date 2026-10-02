@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState, useSyncExternalStore, type Dispatch, type SetStateAction } from "react";
 import { DesktopHostConnection } from "@/components/runtime/desktop-host-connection";
 import { ProjectHome, type RecentProjectEntry } from "@/components/home/project-home";
 import {
@@ -28,8 +28,9 @@ import {
   sampleProjectBrowserDir,
   sampleProjectDir,
 } from "@/lib/sample-project";
-import { isBackendUnavailableError } from "@/lib/runtime/backend-transport";
+import { isBackendUnavailableError, isUnknownRemoteOutcome } from "@/lib/runtime/backend-transport";
 import { backendRequest } from "@/lib/runtime/backend-client";
+import { remoteHostCreationRecoveryConfirmed, remoteHostUnknownOutcome, subscribeRemoteUnknownOutcome } from "@/lib/runtime/adapters/remote-outcome-state";
 import {
   defaultSettingsReadiness,
   loadSettingsReadiness,
@@ -95,11 +96,15 @@ export interface AppProps {
 }
 
 export default function App({ runtime }: AppProps) {
+  // Survives the connected view unmounting during a same-host reconnect.
+  const [unconfirmedCreationHosts, setUnconfirmedCreationHosts] = useState<ReadonlySet<string>>(() => new Set());
   return runtime.connection.status === "disconnected" ? (
     <DesktopHostConnection initialState={runtime.remoteSession} />
   ) : (
     <ConnectedApp
       nativeMenuEnabled={runtime.mode !== "browser"}
+      unconfirmedCreationHosts={unconfirmedCreationHosts}
+      setUnconfirmedCreationHosts={setUnconfirmedCreationHosts}
       remoteHostLabel={runtime.remoteSession?.kind === "connected"
         ? runtime.remoteSession.hostLabel
         : undefined}
@@ -110,10 +115,16 @@ export default function App({ runtime }: AppProps) {
 function ConnectedApp({
   nativeMenuEnabled,
   remoteHostLabel,
+  unconfirmedCreationHosts,
+  setUnconfirmedCreationHosts,
 }: {
   readonly nativeMenuEnabled: boolean;
   readonly remoteHostLabel?: string | undefined;
+  readonly unconfirmedCreationHosts: ReadonlySet<string>;
+  readonly setUnconfirmedCreationHosts: Dispatch<SetStateAction<ReadonlySet<string>>>;
 }) {
+  const restoredHostOutcome = useSyncExternalStore(subscribeRemoteUnknownOutcome, () => remoteHostUnknownOutcome(remoteHostLabel), () => null);
+  const remoteCreationUnconfirmed = Boolean(remoteHostLabel && (unconfirmedCreationHosts.has(remoteHostLabel) || restoredHostOutcome?.operation === "remote_create_project"));
   const [appPreferences, setAppPreferences] = useState<AppPreferences | null>(null);
   const [appPreferencesError, setAppPreferencesError] = useState<string | null>(null);
   const appPreferencesRequestIdRef = useRef(0);
@@ -200,35 +211,39 @@ function ConnectedApp({
     };
   }, [loadPreferences]);
 
-  useEffect(() => {
+  const refreshRemoteProjectCatalog = useCallback(() => {
     if (!remoteHostLabel) return;
     const requestId = remoteCatalogRequestIdRef.current + 1;
     remoteCatalogRequestIdRef.current = requestId;
-    let disposed = false;
     // Remote project IDs belong to the current host catalog. Never expose a
     // desktop/local recent entry while that catalog is being refreshed.
     setRemoteProjectEntries([]);
     setLoadedRemoteCatalogHost(null);
     void backendRequest<RemoteProjectSummary[]>("remote_list_projects")
       .then((projects) => {
-        if (disposed || remoteCatalogRequestIdRef.current !== requestId) return;
+        if (remoteCatalogRequestIdRef.current !== requestId) return;
         setRemoteProjectEntries(dedupeRemoteProjectEntries(projects.map(remoteProjectEntry)));
         setLoadedRemoteCatalogHost(remoteHostLabel);
+        if (remoteHostCreationRecoveryConfirmed(remoteHostLabel) && !remoteHostUnknownOutcome(remoteHostLabel)) {
+          setUnconfirmedCreationHosts((previous) => {
+            if (!previous.has(remoteHostLabel)) return previous;
+            const next = new Set(previous); next.delete(remoteHostLabel); return next;
+          });
+        }
       })
       .catch((error: unknown) => {
-        if (!disposed && remoteCatalogRequestIdRef.current === requestId) {
+        if (remoteCatalogRequestIdRef.current === requestId) {
           setLoadedRemoteCatalogHost(remoteHostLabel);
           setOpenProjectErrorTitle("Projects could not be loaded");
           setOpenProjectError(error instanceof Error ? error.message : "The host project catalog is unavailable.");
         }
       });
-    return () => {
-      disposed = true;
-      if (remoteCatalogRequestIdRef.current === requestId) {
-        remoteCatalogRequestIdRef.current += 1;
-      }
-    };
-  }, [remoteHostLabel]);
+  }, [remoteHostLabel, setUnconfirmedCreationHosts]);
+
+  useEffect(() => {
+    refreshRemoteProjectCatalog();
+    return () => { remoteCatalogRequestIdRef.current += 1; };
+  }, [refreshRemoteProjectCatalog]);
 
   function beginProjectNavigation(
     kind: "open" | "create",
@@ -648,7 +663,7 @@ function ConnectedApp({
   }
 
   async function createRemoteProject(name: string) {
-    if (!appPreferences) return;
+    if (!appPreferences || remoteCreationUnconfirmed) return;
     const requestId = beginProjectNavigation("create", "Project could not be created");
     const project = createEmptySplitProject(name, appPreferences.newProjectDefaults);
     try {
@@ -675,6 +690,10 @@ function ConnectedApp({
       setView("editor");
     } catch (error) {
       if (!isCurrentProjectNavigation(requestId)) return;
+      if (isUnknownRemoteOutcome(error) && remoteHostLabel) {
+        setUnconfirmedCreationHosts((hosts) => new Set([...hosts, remoteHostLabel]));
+        setOpenProjectErrorTitle("Project creation unconfirmed");
+      }
       setOpenProjectError(error instanceof Error ? error.message : "The project could not be created.");
     } finally {
       finishProjectNavigation(requestId);
@@ -780,6 +799,8 @@ function ConnectedApp({
               ? loadedRemoteCatalogHost === remoteHostLabel ? remoteProjectEntries : []
               : [sampleProjectEntry, ...recentProjectEntries]}
             remoteHostLabel={remoteHostLabel}
+            remoteCreationUnconfirmed={remoteCreationUnconfirmed}
+            onRefreshRemoteProjects={refreshRemoteProjectCatalog}
             suggestedProjectParent={suggestedProjectParent(appPreferences)}
             onOpenSample={openSampleProject}
             onOpenProject={(entry) => {

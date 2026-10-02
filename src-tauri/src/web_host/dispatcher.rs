@@ -17,6 +17,11 @@ use crate::codex::turn_cancel::{
     request_codex_project_turn_cancellation,
 };
 
+use crate::app_service::context::{ClientKind, RequestContext};
+use crate::app_service::error::ServiceError;
+use crate::app_service::events::NoopEventSink;
+use crate::app_service::operation::AuthorizationScope;
+use crate::app_service::projects::{read_project_identity, ProjectService};
 use crate::codex::conversation::{
     apply_codex_conversation_proposal, prepare_codex_conversation_proposal,
     undo_codex_conversation_edit, CodexConversationApplyRequest, CodexConversationEditProposal,
@@ -31,7 +36,6 @@ use crate::project::action::ProjectAction;
 use crate::project::export_destination::ExportOutputRequest;
 use crate::project::export_options::{ExportRenderOptions, JobExportSettings};
 use crate::project::export_profiles::{mp4_export_profile_availability_report, ExportProfile};
-use crate::project::job_progress::read_job_progress_snapshots;
 use crate::project::model::{GeneratedAssetStatus, JobStatus, MediaKind, VideoProject};
 use crate::project::split::{
     apply_agent_session_action, apply_project_action_to_split_project,
@@ -73,7 +77,62 @@ impl Default for HostDispatcher {
     }
 }
 
+#[path = "dispatcher_creation.rs"]
+mod creation;
+
 impl RpcDispatcher for HostDispatcher {
+    fn dispatch_with_creation_nonce(
+        &self,
+        request: &RpcEnvelope,
+        nonce: Option<&str>,
+    ) -> Result<Value, ServiceError> {
+        match nonce.filter(|_| request.operation == "remote_create_project") {
+            Some(nonce) => self
+                .create_project_with_nonce(&request.payload, nonce)
+                .map_err(ServiceError::internal),
+            None => self.dispatch_typed(request),
+        }
+    }
+
+    fn recover_durable_creation(&self, nonce: &str) -> Option<Value> {
+        let catalog = self.projects().ok()?;
+        let path = catalog.reserved_creation_path(nonce).ok()?;
+        let identity = crate::app_service::projects::read_project_identity(&path).ok()?;
+        if identity.id != format!("project-{nonce}") {
+            return None;
+        }
+        Some(
+            json!({"catalogProjectId": catalog.id_for_path(&path).ok()?, "project": {"id": identity.id, "contentRevision": identity.content_revision}}),
+        )
+    }
+
+    fn dispatch_typed(&self, request: &RpcEnvelope) -> Result<Value, ServiceError> {
+        if request.operation == "render_media_to_split_project_folder"
+            && request.payload.get("admissionProtocol").is_some()
+        {
+            return self.admit_render(request);
+        }
+        if matches!(
+            request.operation.as_str(),
+            "load_render_attempt_in_split_project_folder"
+                | "recover_render_attempt_in_split_project_folder"
+        ) {
+            return self.render_attempt(request);
+        }
+        match request.operation.as_str() {
+            "apply_project_action_to_split_project_folder" => {
+                self.apply_project_actions(request, false)
+            }
+            "apply_project_actions_to_split_project_folder" => {
+                self.apply_project_actions(request, true)
+            }
+            "save_split_project_to_folder" => self.save_project(request),
+            "load_job_progress_from_split_project_folder" => self.job_progress(request),
+            "read_project_snapshot_from_split_project_folder" => self.project_snapshot(request),
+            _ => self.dispatch(request).map_err(ServiceError::internal),
+        }
+    }
+
     fn dispatch(&self, request: &RpcEnvelope) -> Result<Value, String> {
         match request.operation.as_str() {
             "get_platform_info" => Ok(json!({ "platform": host_platform() })),
@@ -106,9 +165,13 @@ impl RpcDispatcher for HostDispatcher {
                 serde_json::to_value(mp4_export_profile_availability_report())
                     .map_err(|_| "export availability response failed".to_string())
             }
+            "list_visual_effect_catalog" => Ok(crate::effects::effect_catalog_payload()),
             "remote_list_projects" => serde_json::to_value(self.projects()?.list()?)
                 .map_err(|_| "project catalog response failed".to_string()),
             "remote_create_project" => self.create_project(&request.payload),
+            "read_project_snapshot_from_split_project_folder" => self
+                .project_snapshot(request)
+                .map_err(|error| error.to_string()),
             "load_split_project_from_folder" => {
                 let path = self.resolve_project(request)?;
                 serde_json::to_value(
@@ -116,18 +179,18 @@ impl RpcDispatcher for HostDispatcher {
                 )
                 .map_err(|_| "project response failed".to_string())
             }
-            "save_split_project_to_folder" => self.save_project(request),
-            "apply_project_action_to_split_project_folder" => {
-                self.apply_project_actions(request, false)
-            }
-            "apply_project_actions_to_split_project_folder" => {
-                self.apply_project_actions(request, true)
-            }
-            "load_job_progress_from_split_project_folder" => {
-                let path = self.resolve_project(request)?;
-                serde_json::to_value(read_job_progress_snapshots(&path)?)
-                    .map_err(|_| "job progress response failed".to_string())
-            }
+            "save_split_project_to_folder" => self
+                .save_project(request)
+                .map_err(|error| error.to_string()),
+            "apply_project_action_to_split_project_folder" => self
+                .apply_project_actions(request, false)
+                .map_err(|error| error.to_string()),
+            "apply_project_actions_to_split_project_folder" => self
+                .apply_project_actions(request, true)
+                .map_err(|error| error.to_string()),
+            "load_job_progress_from_split_project_folder" => self
+                .job_progress(request)
+                .map_err(|error| error.to_string()),
             "reconcile_temporal_jobs_in_split_project_folder" => {
                 let path = self.resolve_project(request)?;
                 let project =
@@ -149,6 +212,10 @@ impl RpcDispatcher for HostDispatcher {
                 .map_err(|_| "render report response failed".to_string())
             }
             "render_media_to_split_project_folder" => self.render_media(request),
+            "load_render_attempt_in_split_project_folder"
+            | "recover_render_attempt_in_split_project_folder" => self
+                .render_attempt(request)
+                .map_err(|error| error.to_string()),
             "cache_timeline_filmstrip_in_split_project_folder" => {
                 self.cache_timeline_filmstrip(request)
             }
@@ -253,79 +320,128 @@ impl HostDispatcher {
         )
     }
 
-    fn create_project(&self, payload: &Value) -> Result<Value, String> {
-        let mut project: VideoProject = serde_json::from_value(
-            payload
-                .get("project")
-                .cloned()
-                .ok_or_else(|| "project is required".to_string())?,
-        )
-        .map_err(|_| "project is invalid".to_string())?;
-        project.id = format!("project-{}", uuid::Uuid::new_v4().simple());
-        let path = self.projects()?.create_path()?;
-        let saved =
-            save_split_project(&path, &project).map_err(|_| "project could not be saved")?;
-        let catalog_project_id = self.projects()?.id_for_path(&path)?;
-        Ok(json!({"catalogProjectId": catalog_project_id, "project": saved.project}))
+    fn save_project(&self, request: &RpcEnvelope) -> Result<Value, ServiceError> {
+        self.save_project_with_admission_hook(request, || {})
     }
 
-    fn save_project(&self, request: &RpcEnvelope) -> Result<Value, String> {
-        let path = self.resolve_project(request)?;
+    fn save_project_with_admission_hook(
+        &self,
+        request: &RpcEnvelope,
+        admission_hook: impl FnOnce(),
+    ) -> Result<Value, ServiceError> {
+        let activate_project = match request.payload.get("activateProject") {
+            None => true,
+            Some(Value::Bool(activate_project)) => *activate_project,
+            Some(_) => {
+                return Err(ServiceError::invalid_input(
+                    "activateProject must be a boolean",
+                ))
+            }
+        };
+        let path = self
+            .resolve_project(request)
+            .map_err(|_| ServiceError::not_found("project"))?;
+        let context =
+            self.project_request_context(request, &path, AuthorizationScope::ProjectWrite)?;
         let project: VideoProject = serde_json::from_value(
             request
                 .payload
                 .get("project")
                 .cloned()
-                .ok_or_else(|| "project is required".to_string())?,
+                .ok_or_else(|| ServiceError::invalid_input("project is required"))?,
         )
-        .map_err(|_| "project is invalid".to_string())?;
-        let expected_revision = request
-            .expected_revision
-            .ok_or_else(|| "expected revision is required".to_string())?;
+        .map_err(|error| ServiceError::invalid_input(error.to_string()))?;
+        admission_hook();
+        let service = ProjectService::new(std::sync::Arc::new(NoopEventSink));
+        let result = if activate_project {
+            service.save(&context, &path, project)?
+        } else {
+            service.save_existing(&context, &path, project)?
+        };
+        serde_json::to_value(result).map_err(|error| ServiceError::internal(error.to_string()))
+    }
+
+    fn project_request_context(
+        &self,
+        request: &RpcEnvelope,
+        path: &std::path::Path,
+        scope: AuthorizationScope,
+    ) -> Result<RequestContext, ServiceError> {
+        let identity = read_project_identity(path)?;
+        RequestContext::new(
+            ClientKind::Browser,
+            request.request_id.clone(),
+            Some(identity.id),
+            request.expected_revision,
+            std::collections::BTreeSet::from([scope]),
+            request.editor_lease_token.clone(),
+        )
+    }
+
+    fn project_snapshot(&self, request: &RpcEnvelope) -> Result<Value, ServiceError> {
+        let path = self
+            .resolve_project(request)
+            .map_err(|_| ServiceError::not_found("project"))?;
+        let context =
+            self.project_request_context(request, &path, AuthorizationScope::ProjectRead)?;
         serde_json::to_value(
-            replace_split_project_if_revision(&path, project, expected_revision)
-                .map_err(|_| "project could not be saved")?,
+            ProjectService::new(std::sync::Arc::new(NoopEventSink)).load(&context, &path)?,
         )
-        .map_err(|_| "project response failed".to_string())
+        .map_err(|error| ServiceError::internal(error.to_string()))
+    }
+
+    fn job_progress(&self, request: &RpcEnvelope) -> Result<Value, ServiceError> {
+        let path = self
+            .resolve_project(request)
+            .map_err(|_| ServiceError::not_found("project"))?;
+        let context =
+            self.project_request_context(request, &path, AuthorizationScope::ProjectRead)?;
+        let service = ProjectService::new(std::sync::Arc::new(NoopEventSink));
+        serde_json::to_value(service.job_progress(&context, &path)?)
+            .map_err(|error| ServiceError::internal(error.to_string()))
     }
 
     fn apply_project_actions(
         &self,
         request: &RpcEnvelope,
         multiple: bool,
-    ) -> Result<Value, String> {
-        let path = self.resolve_project(request)?;
-        let canonical = load_split_project(&path).map_err(|_| "project could not be loaded")?;
-        let expected_revision = request
-            .expected_revision
-            .ok_or_else(|| "expected revision is required".to_string())?;
-        if canonical.content_revision != expected_revision {
-            return Err("project revision conflict".into());
-        }
-        let actions: Vec<ProjectAction> = if multiple {
-            serde_json::from_value(
-                request
-                    .payload
-                    .get("actions")
-                    .cloned()
-                    .ok_or_else(|| "project actions are required".to_string())?,
-            )
-            .map_err(|_| "project actions are invalid".to_string())?
-        } else {
-            vec![serde_json::from_value(
-                request
-                    .payload
-                    .get("action")
-                    .cloned()
-                    .ok_or_else(|| "project action is required".to_string())?,
-            )
-            .map_err(|_| "project action is invalid".to_string())?]
-        };
-        serde_json::to_value(
-            apply_project_actions_to_split_project(&path, actions)
-                .map_err(|_| "project actions could not be applied")?,
-        )
-        .map_err(|_| "project response failed".to_string())
+    ) -> Result<Value, ServiceError> {
+        self.apply_project_actions_with_admission_hook(request, multiple, || {})
+    }
+
+    fn apply_project_actions_with_admission_hook(
+        &self,
+        request: &RpcEnvelope,
+        multiple: bool,
+        admission_hook: impl FnOnce(),
+    ) -> Result<Value, ServiceError> {
+        let path = self
+            .resolve_project(request)
+            .map_err(|_| ServiceError::not_found("project"))?;
+        let context =
+            self.project_request_context(request, &path, AuthorizationScope::ProjectWrite)?;
+        admission_hook();
+        let actions: Vec<ProjectAction> =
+            if multiple {
+                serde_json::from_value(
+                    request.payload.get("actions").cloned().ok_or_else(|| {
+                        ServiceError::invalid_input("project actions are required")
+                    })?,
+                )
+                .map_err(|error| ServiceError::invalid_input(error.to_string()))?
+            } else {
+                vec![serde_json::from_value(
+                    request
+                        .payload
+                        .get("action")
+                        .cloned()
+                        .ok_or_else(|| ServiceError::invalid_input("project action is required"))?,
+                )
+                .map_err(|error| ServiceError::invalid_input(error.to_string()))?]
+            };
+        let service = ProjectService::new(std::sync::Arc::new(NoopEventSink));
+        serde_json::to_value(service.apply_actions(&context, &path, actions)?)
+            .map_err(|error| ServiceError::internal(error.to_string()))
     }
 
     fn cache_timeline_filmstrip(&self, request: &RpcEnvelope) -> Result<Value, String> {
@@ -415,6 +531,11 @@ impl HostDispatcher {
     }
 
     fn render_media(&self, request: &RpcEnvelope) -> Result<Value, String> {
+        if request.payload.get("admissionProtocol").is_some() {
+            return self
+                .admit_render(request)
+                .map_err(|error| error.to_string());
+        }
         let path = self.resolve_project(request)?;
         let canonical = self.ensure_revision(request, &path)?;
         let input: RenderMediaRequest = serde_json::from_value(request.payload.clone())
@@ -459,6 +580,71 @@ impl HostDispatcher {
         })
         .map_err(pipeline_error_message)?;
         serde_json::to_value(result).map_err(|_| "render response failed".to_string())
+    }
+
+    fn admit_render(&self, request: &RpcEnvelope) -> Result<Value, ServiceError> {
+        if request
+            .payload
+            .get("admissionProtocol")
+            .and_then(Value::as_u64)
+            != Some(1)
+        {
+            return Err(ServiceError::invalid_input(
+                "unsupported render admission protocol",
+            ));
+        }
+        let path = self
+            .resolve_project(request)
+            .map_err(ServiceError::internal)?;
+        let mut payload = request.payload.clone();
+        let object = payload
+            .as_object_mut()
+            .ok_or_else(|| ServiceError::invalid_input("render input must be an object"))?;
+        for key in ["projectDir", "admissionProtocol", "expectedRevision"] {
+            object.remove(key);
+        }
+        let input = serde_json::from_value::<
+            crate::render_pipeline::project_export::MediaRenderInput,
+        >(payload)
+        .map_err(|_| ServiceError::invalid_input("render input is invalid"))?;
+        let context =
+            self.project_request_context(request, &path, AuthorizationScope::ProjectWrite)?;
+        serde_json::to_value(crate::app_service::render_jobs::RenderJobService::admit(
+            &context, &path, input,
+        )?)
+        .map_err(|error| ServiceError::internal(error.to_string()))
+    }
+
+    fn render_attempt(&self, request: &RpcEnvelope) -> Result<Value, ServiceError> {
+        let path = self
+            .resolve_project(request)
+            .map_err(ServiceError::internal)?;
+        // Catalog resolution authorizes this opaque project identity; the record itself
+        // remains entirely under that checked project root.
+        let recovering = request.operation == "recover_render_attempt_in_split_project_folder";
+        let context = self.project_request_context(
+            request,
+            &path,
+            if recovering {
+                AuthorizationScope::ProjectWrite
+            } else {
+                AuthorizationScope::ProjectRead
+            },
+        )?;
+        let job_id =
+            required_string(&request.payload, "jobId").map_err(ServiceError::invalid_input)?;
+        let attempt_id =
+            required_string(&request.payload, "attemptId").map_err(ServiceError::invalid_input)?;
+        let query = crate::app_service::render_jobs::RenderAttemptQuery {
+            job_id: job_id.into(),
+            attempt_id: attempt_id.into(),
+        };
+        let outcome = if recovering {
+            crate::app_service::render_jobs::RenderJobService::recover(&context, &path, query)?
+        } else {
+            crate::app_service::render_jobs::RenderJobService::attempt(&context, &path, query)?
+        };
+        serde_json::to_value(outcome).map_err(|error| ServiceError::internal(error.to_string()))
     }
 
     fn apply_agent_session_action(&self, request: &RpcEnvelope) -> Result<Value, String> {
@@ -732,6 +918,109 @@ impl HostDispatcher {
                 .map_err(|error| error.to_string())?,
         )
         .map_err(|_| "agent undo response failed".to_string())
+    }
+}
+
+#[cfg(test)]
+mod save_transaction_tests {
+    use super::*;
+    use crate::app_service::error::ServiceErrorCode;
+    use crate::project::fixtures::sample_project;
+    use crate::project::split::split_project_manifest_path;
+
+    fn fixture() -> (
+        tempfile::TempDir,
+        std::path::PathBuf,
+        HostDispatcher,
+        RpcEnvelope,
+    ) {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("project");
+        save_split_project(&path, &sample_project()).unwrap();
+        let manifest_path = split_project_manifest_path(&path);
+        let mut manifest: Value =
+            serde_json::from_slice(&std::fs::read(&manifest_path).unwrap()).unwrap();
+        manifest["contentRevision"] = json!(0);
+        std::fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+        let project = load_split_project(&path).unwrap();
+        let catalog = ProjectCatalog::new(vec![root.path().to_path_buf()]).unwrap();
+        let request = RpcEnvelope {
+            request_id: "snapshot-save".into(),
+            operation: "save_split_project_to_folder".into(),
+            project_id: Some(catalog.id_for_path(&path).unwrap()),
+            expected_revision: Some(0),
+            editor_lease_token: Some("test-lease".into()),
+            payload: json!({"project": project, "activateProject": false}),
+        };
+        (
+            root,
+            path,
+            HostDispatcher::with_project_catalog(catalog),
+            request,
+        )
+    }
+
+    #[test]
+    fn snapshot_save_does_not_recreate_a_manifest_removed_after_host_admission() {
+        let (_root, path, dispatcher, request) = fixture();
+        let manifest_path = split_project_manifest_path(&path);
+        let result = dispatcher.save_project_with_admission_hook(&request, || {
+            std::fs::remove_file(&manifest_path).unwrap();
+        });
+        assert!(
+            result.is_err(),
+            "an existing-only snapshot restore must reject the missing package"
+        );
+        assert!(
+            !manifest_path.exists(),
+            "the host must not recreate the package"
+        );
+    }
+
+    #[test]
+    fn snapshot_save_accepts_an_existing_revision_zero_package() {
+        let (_root, path, dispatcher, request) = fixture();
+        let result = dispatcher.dispatch_typed(&request).unwrap();
+        assert_eq!(result["project"]["contentRevision"], json!(1));
+        assert_eq!(load_split_project(&path).unwrap().content_revision, 1);
+    }
+
+    #[test]
+    fn snapshot_save_preserves_legacy_default_and_explicit_activation() {
+        for activation in [None, Some(json!(true))] {
+            let (_root, path, dispatcher, mut request) = fixture();
+            if let Some(activation) = activation {
+                request.payload["activateProject"] = activation;
+            } else {
+                request
+                    .payload
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("activateProject");
+            }
+            let manifest_path = split_project_manifest_path(&path);
+            let result = dispatcher
+                .save_project_with_admission_hook(&request, || {
+                    std::fs::remove_file(&manifest_path).unwrap();
+                })
+                .unwrap();
+            assert_eq!(result["project"]["contentRevision"], json!(1));
+            assert_eq!(load_split_project(&path).unwrap().content_revision, 1);
+        }
+    }
+
+    #[test]
+    fn snapshot_save_rejects_non_boolean_activation_flags_without_writing() {
+        let (_root, path, dispatcher, mut request) = fixture();
+        let initial = load_split_project(&path).unwrap();
+        for invalid in [json!(null), json!("false"), json!(0), json!([]), json!({})] {
+            request.payload["activateProject"] = invalid;
+            assert_eq!(
+                dispatcher.dispatch_typed(&request).unwrap_err().code(),
+                ServiceErrorCode::InvalidInput
+            );
+            assert_eq!(load_split_project(&path).unwrap(), initial);
+        }
     }
 }
 
@@ -1016,5 +1305,111 @@ mod tests {
                 "advertised operation has no dispatcher: {operation}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod action_transaction_tests {
+    use super::*;
+    use crate::project::fixtures::sample_project;
+    use std::sync::{Arc, Barrier};
+
+    #[test]
+    fn committed_action_replays_after_a_competing_writer_without_reapplying() {
+        use super::super::rpc::RpcEngine;
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("project");
+        let initial = save_split_project(&path, &sample_project())
+            .unwrap()
+            .project;
+        let catalog = ProjectCatalog::new(vec![root.path().to_path_buf()]).unwrap();
+        let request = RpcEnvelope {
+            request_id: "completed-action".into(),
+            operation: "apply_project_action_to_split_project_folder".into(),
+            project_id: Some(catalog.id_for_path(&path).unwrap()),
+            expected_revision: Some(initial.content_revision),
+            editor_lease_token: Some("test-lease".into()),
+            payload: json!({"action": ProjectAction::UpdateProjectSettings {
+                name: "browser edit".into(), render_settings: initial.render_settings.clone(),
+            }}),
+        };
+        let scopes = std::collections::BTreeSet::from([
+            AuthorizationScope::Session,
+            AuthorizationScope::ProjectRead,
+            AuthorizationScope::ProjectWrite,
+        ]);
+        let engine = RpcEngine::new(Arc::new(HostDispatcher::with_project_catalog(catalog)));
+        let bytes = serde_json::to_vec(&request).unwrap();
+        let first = engine.execute("session", &scopes, &bytes, 1);
+        assert!(first.ok, "{first:?}");
+        let competing = apply_project_actions_to_split_project(
+            &path,
+            vec![ProjectAction::UpdateProjectSettings {
+                name: "desktop edit".into(),
+                render_settings: initial.render_settings,
+            }],
+        )
+        .unwrap()
+        .project;
+        let replay = engine.execute("session", &scopes, &bytes, 2);
+        assert_eq!(replay, first);
+        assert_eq!(load_split_project(&path).unwrap(), competing);
+        let mut stale = request.clone();
+        stale.request_id = "new-stale-request".into();
+        let response = engine.execute("session", &scopes, &serde_json::to_vec(&stale).unwrap(), 3);
+        assert_eq!(
+            response.error.unwrap().code,
+            super::super::rpc::RpcErrorCode::Conflict
+        );
+        assert_eq!(load_split_project(&path).unwrap(), competing);
+    }
+
+    #[test]
+    fn competing_writer_between_action_admission_and_commit_rejects_stale_action() {
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("project");
+        let initial = save_split_project(&path, &sample_project())
+            .unwrap()
+            .project;
+        let catalog = ProjectCatalog::new(vec![root.path().to_path_buf()]).unwrap();
+        let request = RpcEnvelope {
+            request_id: "stale-action".into(),
+            operation: "apply_project_action_to_split_project_folder".into(),
+            project_id: Some(catalog.id_for_path(&path).unwrap()),
+            expected_revision: Some(initial.content_revision),
+            editor_lease_token: Some("test-lease".into()),
+            payload: json!({"action": ProjectAction::UpdateProjectSettings {
+                name: "stale browser edit".into(),
+                render_settings: initial.render_settings.clone(),
+            }}),
+        };
+        let barrier = Arc::new(Barrier::new(2));
+        let writer_barrier = barrier.clone();
+        let writer_path = path.clone();
+        let writer = std::thread::spawn(move || {
+            writer_barrier.wait();
+            let result = apply_project_actions_to_split_project(
+                &writer_path,
+                vec![ProjectAction::UpdateProjectSettings {
+                    name: "competing desktop edit".into(),
+                    render_settings: initial.render_settings,
+                }],
+            )
+            .unwrap();
+            writer_barrier.wait();
+            result.project
+        });
+        let dispatcher = HostDispatcher::with_project_catalog(catalog);
+        let result = dispatcher.apply_project_actions_with_admission_hook(&request, false, || {
+            barrier.wait();
+            barrier.wait();
+        });
+        let competing = writer.join().unwrap();
+        assert_eq!(
+            result.unwrap_err().code(),
+            crate::app_service::error::ServiceErrorCode::RevisionConflict,
+            "stale action must reject the competing revision"
+        );
+        assert_eq!(load_split_project(&path).unwrap(), competing);
     }
 }

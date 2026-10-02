@@ -10100,7 +10100,9 @@ fn safe_workflow_segment(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use base64::Engine;
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::collections::BTreeMap;
+    #[cfg(feature = "ges-render")]
+    use std::collections::BTreeSet;
     use std::ffi::OsStr;
     use std::fs;
     use std::io::{Read, Write};
@@ -10146,11 +10148,13 @@ mod tests {
         VIDEO_CREATER_TEMPORAL_TASK_QUEUE,
     };
     use crate::edit::preset::{CaptionStyle, EditJobRequest, EditPreset, LanguageMode};
-    use crate::edit::render_plan::{
-        generate_spoken_semantic_multi_source_edit_timeline, RenderOutputProfile, RenderQuality,
-    };
+    #[cfg(feature = "ges-render")]
+    use crate::edit::render_plan::generate_spoken_semantic_multi_source_edit_timeline;
+    use crate::edit::render_plan::{RenderOutputProfile, RenderQuality};
+    #[cfg(feature = "ges-render")]
+    use crate::generation::fal::FalQueueStatusKind;
     use crate::generation::fal::{
-        FalQueueCancelStatus, FalQueueStatusKind, FAL_AURA_SR_MODEL_ID, FAL_FLUX_SCHNELL_MODEL_ID,
+        FalQueueCancelStatus, FAL_AURA_SR_MODEL_ID, FAL_FLUX_SCHNELL_MODEL_ID,
         FAL_KLING_V3_PRO_IMAGE_TO_VIDEO_MODEL_ID, FAL_KLING_V3_PRO_MOTION_CONTROL_MODEL_ID,
         FAL_NANO_BANANA_PRO_EDIT_MODEL_ID, FAL_PROVIDER, FAL_SONILO_VIDEO_TO_MUSIC_MODEL_ID,
         FAL_VIDEO_UPSCALER_MODEL_ID, FAL_WAN_IMAGE_TO_VIDEO_MODEL_ID,
@@ -10167,28 +10171,34 @@ mod tests {
     use crate::generation::xai::{
         XAI_GROK_IMAGE_QUALITY_MODEL_ID, XAI_GROK_VIDEO_MODEL_ID, XAI_PROVIDER,
     };
-    use crate::project::action::{
-        ProjectAction, ProjectActionGeneratedAssetOutput, ProjectActionReplaceGeneratedOutput,
-    };
+    #[cfg(feature = "ges-render")]
+    use crate::project::action::ProjectActionReplaceGeneratedOutput;
+    use crate::project::action::{ProjectAction, ProjectActionGeneratedAssetOutput};
+    #[cfg(feature = "ges-render")]
     use crate::project::export_options::ExportRenderOptions;
     use crate::project::export_profiles::ExportProfile;
+    #[cfg(feature = "ges-render")]
     use crate::project::import::import_media_files;
     use crate::project::model::{
         GeneratedAsset, GeneratedAssetReferences, GeneratedAssetSettings, GeneratedAssetStatus,
         GenerationModel, JobProviderRequest, JobStatus, MediaAsset, MediaKind, TimelineItem,
-        TimelineItemKind, TimelineSource, TrackKind, Transcript, TranscriptSegment, TranscriptWord,
-        VideoProject,
+        TimelineItemKind, TimelineSource, VideoProject,
     };
+    #[cfg(feature = "ges-render")]
+    use crate::project::model::{TrackKind, Transcript, TranscriptSegment, TranscriptWord};
+    #[cfg(feature = "ges-render")]
+    use crate::project::split::apply_project_action_to_split_project;
     use crate::project::split::{
-        apply_project_action_to_split_project, load_split_project, save_split_project,
-        split_workflow_job_index_from_project,
+        load_split_project, save_split_project, split_workflow_job_index_from_project,
     };
     use crate::render_pipeline::error::PipelineResult;
     use crate::render_pipeline::probe::{AudioProbe, MediaProbe, VideoProbe};
-    use crate::render_pipeline::process::{
-        CommandSpec, ProcessOutput, ProcessRunner, SystemProcessRunner,
-    };
+    #[cfg(feature = "ges-render")]
+    use crate::render_pipeline::process::SystemProcessRunner;
+    use crate::render_pipeline::process::{CommandSpec, ProcessOutput, ProcessRunner};
+    #[cfg(feature = "ges-render")]
     use crate::render_pipeline::project_export::render_media_to_split_project_folder;
+    #[cfg(feature = "ges-render")]
     use crate::search::semantic_visual::SemanticVisualHit;
 
     struct NoopProcessRunner;

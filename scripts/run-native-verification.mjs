@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -13,6 +13,8 @@ import {
   filesystemBytes,
   validateCargoTargetPath,
 } from "./cargo-cache-policy.mjs";
+import { evaluateExactRustTest, parseFocusedArgs } from "./focused-development.mjs";
+import { performanceEnvironment, writePerformanceReport } from "./performance-metrics.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const metricsPath = resolve(
@@ -42,6 +44,7 @@ export function parseVerificationArgs(argv) {
   if (lane === "release" && filters.length > 0) {
     throw new Error("release verification does not accept Rust test filters");
   }
+  if (lane === "fast") parseFocusedArgs(["native", ...filters]);
   return { lane, filters };
 }
 
@@ -90,10 +93,7 @@ export function verificationEnvironment(root, lane) {
 }
 
 async function writeMetrics(report) {
-  await mkdir(dirname(metricsPath), { recursive: true });
-  const temporary = `${metricsPath}.${process.pid}.tmp`;
-  await writeFile(temporary, `${JSON.stringify(report, null, 2)}\n`);
-  await rename(temporary, metricsPath);
+  await writePerformanceReport(dirname(metricsPath), "native-verification", report);
 }
 
 async function removeVerificationTarget(targetPath) {
@@ -105,14 +105,21 @@ async function removeVerificationTarget(targetPath) {
   await rm(validated, { recursive: true, force: true });
 }
 
-function runStep(command, env, cancellation) {
+export function runStep(command, env, cancellation) {
   const started = Date.now();
   return new Promise((resolveStep, rejectStep) => {
     const child = spawn(command[0], command.slice(1), {
       cwd: repoRoot,
       env: { ...process.env, ...env },
-      stdio: "inherit",
+      stdio: ["inherit", "pipe", "pipe"],
     });
+    let output = "";
+    const retainOutput = (chunk, stream) => {
+      stream.write(chunk);
+      output = `${output}${chunk.toString()}`.slice(-1024 * 1024);
+    };
+    child.stdout.on("data", (chunk) => retainOutput(chunk, process.stdout));
+    child.stderr.on("data", (chunk) => retainOutput(chunk, process.stderr));
     cancellation.activeChild = child;
     child.once("error", rejectStep);
     child.once("close", (exitCode, signal) => {
@@ -121,7 +128,7 @@ function runStep(command, env, cancellation) {
         command,
         status: cancellation.signal || signal
           ? "cancelled"
-          : exitCode === 0 ? "passed" : "failed",
+          : exitCode === 0 && (!command.includes("--exact") || evaluateExactRustTest(exitCode, output)) ? "passed" : "failed",
         elapsedMilliseconds: Date.now() - started,
         exitCode,
       });
@@ -200,7 +207,8 @@ export async function runNativeVerification(input) {
     const report = {
       schemaVersion: 1,
       lane: input.lane,
-      command: process.argv,
+      command: ["node", "scripts/run-native-verification.mjs", "--lane", input.lane],
+      environment: performanceEnvironment(input.lane === "release" ? "bounded-release" : "bounded-default-focused"),
       status,
       startedAt,
       completedAt: new Date().toISOString(),
