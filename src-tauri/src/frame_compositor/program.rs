@@ -460,7 +460,8 @@ mod tests {
             .flat_map(|y| (0..16_u8).flat_map(move |x| [x * 16, y * 16, x ^ y, 255]))
             .collect::<Vec<_>>();
         let identity = FrameProgram::identity(1.0).sample(0.0).expect("identity");
-        let changes: [(&str, fn(&mut SampledFrameProgram)); 15] = [
+        type GeometryChange = (&'static str, fn(&mut SampledFrameProgram));
+        let changes: [GeometryChange; 15] = [
             ("canvas center x", |p| p.canvas_transform.center_x = 0.25),
             ("canvas center y", |p| p.canvas_transform.center_y = 0.25),
             ("canvas width", |p| p.canvas_transform.width = 0.75),
