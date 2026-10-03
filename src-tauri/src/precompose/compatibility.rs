@@ -230,16 +230,17 @@ pub fn prepare_compatibility_media(
     for media in candidates {
         ensure_not_cancelled(cancellation)?;
         let source = project_dir.join(&media.relative_path);
-        let bytes = fs::read(&source).map_err(|error| {
+        let fingerprint = super::cache::sha256_file_with_prefix_cancellable(
+            &source,
+            CACHE_VERSION.as_bytes(),
+            || cancellation.is_some_and(RenderCancellationToken::is_cancelled),
+        )
+        .map_err(|error| {
             compatibility_error(
                 &media.id,
-                format!("Compatibility source could not be read: {error}"),
+                format!("Compatibility source could not be hashed: {error}"),
             )
         })?;
-        let fingerprint = format!(
-            "{:x}",
-            Sha256::digest([CACHE_VERSION.as_bytes(), bytes.as_slice()].concat())
-        );
         let cache_dir = project_dir
             .join(".video-creater/cache/compatibility")
             .join(&fingerprint);

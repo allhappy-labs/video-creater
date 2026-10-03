@@ -2,12 +2,16 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command as StdCommand;
 
-use video_creater_lib::project::model::{CaptionRenderMode, VideoProject};
+#[cfg(feature = "ges-render")]
+use video_creater_lib::project::model::CaptionRenderMode;
+use video_creater_lib::project::model::VideoProject;
 use video_creater_lib::project::storage::save_project;
 use video_creater_lib::render_pipeline::error::PipelineErrorCode;
+#[cfg(feature = "ges-render")]
+use video_creater_lib::render_pipeline::template_project::TemplateRenderReport;
 use video_creater_lib::render_pipeline::template_project::{
     parse_render_template_args, project_relative_report_path, run_render_template_project,
-    RenderTemplateProjectConfig, TemplateRenderConfig, TemplateRenderFormat, TemplateRenderReport,
+    RenderTemplateProjectConfig, TemplateRenderConfig, TemplateRenderFormat,
 };
 
 #[test]

@@ -48,6 +48,8 @@ const ARTIFACT_FORMAT: &str = "onnx_models";
 
 #[derive(Debug, Error)]
 pub enum SpeechModelError {
+    #[error("speech model download cancelled")]
+    Cancelled,
     #[error("speech model download failed: {0}")]
     Download(String),
     #[error("speech model I/O failed: {0}")]
@@ -63,6 +65,7 @@ pub enum SpeechModelError {
 impl SpeechModelError {
     pub fn stable_code(&self) -> &'static str {
         match self {
+            Self::Cancelled => "speechModels.download.cancelled",
             Self::Download(_) => "speechModels.download.failed",
             Self::Io(_) => "speechModels.io.failed",
             Self::Verification(_) => "speechModels.verification.failed",
@@ -183,7 +186,20 @@ impl ProductionSpeechModelStore {
     where
         F: FnMut(SpeechModelProgress) -> Result<(), SpeechModelError>,
     {
-        let result = self.download_and_verify_with_observer_inner(observer);
+        self.download_and_verify_with_cancellation(observer, || Ok(()))
+    }
+
+    /// Check cancellation before requesting files, between chunks, and before publishing a file.
+    pub fn download_and_verify_with_cancellation<F, C>(
+        &self,
+        observer: F,
+        check_cancelled: C,
+    ) -> Result<ProductionSpeechModelStatus, SpeechModelError>
+    where
+        F: FnMut(SpeechModelProgress) -> Result<(), SpeechModelError>,
+        C: Fn() -> Result<(), SpeechModelError>,
+    {
+        let result = self.download_and_verify_with_observer_inner(observer, check_cancelled);
         match result {
             Ok(status) => Ok(status),
             Err(error) => {
@@ -193,36 +209,82 @@ impl ProductionSpeechModelStore {
         }
     }
 
-    fn download_and_verify_with_observer_inner<F>(
+    fn download_and_verify_with_observer_inner<F, C>(
         &self,
         observer: F,
+        check_cancelled: C,
     ) -> Result<ProductionSpeechModelStatus, SpeechModelError>
     where
         F: FnMut(SpeechModelProgress) -> Result<(), SpeechModelError>,
+        C: Fn() -> Result<(), SpeechModelError>,
     {
-        let client = reqwest::blocking::Client::builder()
+        check_cancelled()?;
+        #[cfg(feature = "web-host")]
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| SpeechModelError::Download(error.to_string()))?;
+        #[cfg(feature = "web-host")]
+        let client = reqwest::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .read_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(600))
             .user_agent("video-creater-production-speech-models/1")
             .build()
             .map_err(|error| SpeechModelError::Download(error.to_string()))?;
-        self.download_files_with(
+        #[cfg(not(feature = "web-host"))]
+        let client = reqwest::blocking::Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .timeout(std::time::Duration::from_secs(120))
+            .user_agent("video-creater-production-speech-models/1")
+            .build()
+            .map_err(|error| SpeechModelError::Download(error.to_string()))?;
+        self.download_files_cancellable_with(
             MODEL_FILES,
             |file, partial| {
-                let url = model_file_url(file);
-                let mut response = client
-                    .get(url)
-                    .send()
-                    .and_then(reqwest::blocking::Response::error_for_status)
-                    .map_err(|error| SpeechModelError::Download(error.to_string()))?;
+                check_cancelled()?;
                 let mut output = fs::File::create(partial)
                     .map_err(|error| SpeechModelError::Io(error.to_string()))?;
-                std::io::copy(&mut response, &mut output)
-                    .map_err(|error| SpeechModelError::Io(error.to_string()))?;
+                #[cfg(feature = "web-host")]
+                runtime.block_on(async {
+                    let mut response = client
+                        .get(model_file_url(file))
+                        .send()
+                        .await
+                        .and_then(reqwest::Response::error_for_status)
+                        .map_err(|error| SpeechModelError::Download(error.to_string()))?;
+                    let mut downloaded = 0;
+                    loop {
+                        check_cancelled()?;
+                        let Some(chunk) = response
+                            .chunk()
+                            .await
+                            .map_err(|error| SpeechModelError::Download(error.to_string()))?
+                        else {
+                            break;
+                        };
+                        check_cancelled()?;
+                        write_model_chunk(&mut output, &chunk, &mut downloaded, file.bytes)?;
+                    }
+                    Ok::<_, SpeechModelError>(())
+                })?;
+                #[cfg(not(feature = "web-host"))]
+                {
+                    let mut response = client
+                        .get(model_file_url(file))
+                        .send()
+                        .and_then(reqwest::blocking::Response::error_for_status)
+                        .map_err(|error| SpeechModelError::Download(error.to_string()))?;
+                    copy_model_download(&mut response, &mut output, file.bytes, &check_cancelled)?;
+                }
                 output
                     .flush()
                     .map_err(|error| SpeechModelError::Io(error.to_string()))
             },
             observer,
+            &check_cancelled,
         )?;
+        check_cancelled()?;
         self.verify_files()?;
         self.clear_last_error()?;
         let status = self.status();
@@ -302,19 +364,36 @@ impl ProductionSpeechModelStore {
         self.root.join(".last-error.json")
     }
 
+    #[cfg(test)]
     fn download_files_with<D, F>(
         &self,
         files: &[ModelFile],
-        mut download: D,
-        mut observer: F,
+        download: D,
+        observer: F,
     ) -> Result<(), SpeechModelError>
     where
         D: FnMut(&ModelFile, &Path) -> Result<(), SpeechModelError>,
         F: FnMut(SpeechModelProgress) -> Result<(), SpeechModelError>,
     {
+        self.download_files_cancellable_with(files, download, observer, || Ok(()))
+    }
+
+    fn download_files_cancellable_with<D, F, C>(
+        &self,
+        files: &[ModelFile],
+        mut download: D,
+        mut observer: F,
+        check_cancelled: C,
+    ) -> Result<(), SpeechModelError>
+    where
+        D: FnMut(&ModelFile, &Path) -> Result<(), SpeechModelError>,
+        F: FnMut(SpeechModelProgress) -> Result<(), SpeechModelError>,
+        C: Fn() -> Result<(), SpeechModelError>,
+    {
         let total_bytes = files.iter().map(|file| file.bytes).sum();
         let mut downloaded_bytes = 0_u64;
         for (index, file) in files.iter().enumerate() {
+            check_cancelled()?;
             let destination = self.file_path(file);
             if verify_file(&destination, file).is_err() {
                 if let Some(parent) = destination.parent() {
@@ -328,10 +407,17 @@ impl ProductionSpeechModelStore {
                         .and_then(|value| value.to_str())
                         .unwrap_or("file")
                 ));
-                download(file, &partial)?;
-                verify_file(&partial, file)?;
-                fs::rename(&partial, &destination)
-                    .map_err(|error| SpeechModelError::Io(error.to_string()))?;
+                let result = (|| {
+                    download(file, &partial)?;
+                    verify_file(&partial, file)?;
+                    check_cancelled()?;
+                    fs::rename(&partial, &destination)
+                        .map_err(|error| SpeechModelError::Io(error.to_string()))
+                })();
+                if result.is_err() {
+                    let _ = fs::remove_file(&partial);
+                }
+                result?;
             }
             downloaded_bytes += file.bytes;
             observer(SpeechModelProgress {
@@ -346,6 +432,47 @@ impl ProductionSpeechModelStore {
 
     fn file_path(&self, file: &ModelFile) -> PathBuf {
         self.root.join(file.repo_dir).join(file.path)
+    }
+}
+
+fn write_model_chunk<W: Write>(
+    output: &mut W,
+    chunk: &[u8],
+    downloaded: &mut u64,
+    expected_bytes: u64,
+) -> Result<(), SpeechModelError> {
+    let next = downloaded
+        .checked_add(chunk.len() as u64)
+        .filter(|bytes| *bytes <= expected_bytes)
+        .ok_or_else(|| {
+            SpeechModelError::Verification("download exceeds pinned model size".into())
+        })?;
+    output
+        .write_all(chunk)
+        .map_err(|error| SpeechModelError::Io(error.to_string()))?;
+    *downloaded = next;
+    Ok(())
+}
+
+#[cfg(any(not(feature = "web-host"), test))]
+fn copy_model_download<R: Read, W: Write, C: Fn() -> Result<(), SpeechModelError>>(
+    input: &mut R,
+    output: &mut W,
+    expected_bytes: u64,
+    check_cancelled: C,
+) -> Result<(), SpeechModelError> {
+    let mut buffer = [0_u8; 64 * 1024];
+    let mut downloaded = 0;
+    loop {
+        check_cancelled()?;
+        let count = input
+            .read(&mut buffer)
+            .map_err(|error| SpeechModelError::Io(error.to_string()))?;
+        check_cancelled()?;
+        if count == 0 {
+            return Ok(());
+        }
+        write_model_chunk(output, &buffer[..count], &mut downloaded, expected_bytes)?;
     }
 }
 
@@ -775,6 +902,101 @@ mod tests {
         assert_eq!(snapshots[1].downloaded_bytes, 9);
         assert_eq!(snapshots[1].total_files, 2);
         assert_eq!(snapshots[1].total_bytes, 9);
+    }
+
+    #[test]
+    fn failed_transfer_removes_partial_without_publishing_a_model() {
+        let directory = tempdir().expect("temporary model root");
+        let store = ProductionSpeechModelStore::new(directory.path().to_path_buf());
+        let file = fixture_file("fixture", "model.bin", b"verified");
+        let destination = store.file_path(&file);
+        let error = store
+            .download_files_with(
+                &[file],
+                |_file, partial| {
+                    fs::write(partial, b"incomplete").unwrap();
+                    Err(SpeechModelError::Download("fixture failure".into()))
+                },
+                |_| Ok(()),
+            )
+            .unwrap_err();
+        assert_eq!(error.stable_code(), "speechModels.download.failed");
+        assert!(!destination.exists());
+        assert!(!destination.with_extension("bin.partial").exists());
+    }
+
+    #[test]
+    fn cancellation_before_fetch_leaves_existing_files_untouched() {
+        let directory = tempdir().expect("temporary model root");
+        let store = ProductionSpeechModelStore::new(directory.path().to_path_buf());
+        let file = fixture_file("fixture", "model.bin", b"verified");
+        let unrelated = directory.path().join("keep.bin");
+        fs::write(&unrelated, b"keep").unwrap();
+        let result = store.download_files_cancellable_with(
+            &[file],
+            |_, _| panic!("cancelled download must never fetch"),
+            |_| Ok(()),
+            || Err(SpeechModelError::Cancelled),
+        );
+        assert!(matches!(result, Err(SpeechModelError::Cancelled)));
+        assert!(!store.root().exists());
+        assert_eq!(fs::read(unrelated).unwrap(), b"keep");
+    }
+
+    #[test]
+    fn cancellation_after_transfer_does_not_publish_partial_model() {
+        let directory = tempdir().unwrap();
+        let store = ProductionSpeechModelStore::new(directory.path().to_path_buf());
+        let file = fixture_file("fixture", "model.bin", b"verified");
+        let cancelled = std::cell::Cell::new(false);
+        let result = store.download_files_cancellable_with(
+            &[file],
+            |_, partial| {
+                fs::write(partial, b"verified").unwrap();
+                cancelled.set(true);
+                Ok(())
+            },
+            |_| Ok(()),
+            || {
+                if cancelled.get() {
+                    Err(SpeechModelError::Cancelled)
+                } else {
+                    Ok(())
+                }
+            },
+        );
+        assert!(matches!(result, Err(SpeechModelError::Cancelled)));
+        let destination = store.file_path(&file);
+        assert!(!destination.exists());
+        assert!(!destination.with_extension("bin.partial").exists());
+    }
+
+    #[test]
+    fn streamed_copy_stops_on_cancellation_and_rejects_oversized_response() {
+        let bytes = vec![1; 128 * 1024];
+        let checks = std::cell::Cell::new(0);
+        let mut output = Vec::new();
+        let result = copy_model_download(
+            &mut bytes.as_slice(),
+            &mut output,
+            bytes.len() as u64,
+            || {
+                checks.set(checks.get() + 1);
+                if checks.get() > 2 {
+                    Err(SpeechModelError::Cancelled)
+                } else {
+                    Ok(())
+                }
+            },
+        );
+        assert!(matches!(result, Err(SpeechModelError::Cancelled)));
+        assert_eq!(output.len(), 64 * 1024);
+        let mut output = Vec::new();
+        assert!(matches!(
+            copy_model_download(&mut b"too large".as_slice(), &mut output, 3, || Ok(())),
+            Err(SpeechModelError::Verification(_))
+        ));
+        assert!(output.is_empty());
     }
 
     #[test]

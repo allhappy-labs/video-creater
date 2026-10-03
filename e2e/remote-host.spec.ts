@@ -16,7 +16,7 @@ test("real remote host completes edit, reconnect, render, and download", async (
   const video = page.locator("video").first();
   await expect(video).toBeVisible();
   await video.evaluate((element) => {
-    element.currentTime = 0.4;
+    (element as HTMLVideoElement).currentTime = 0.4;
   });
 
   await page.reload({ waitUntil: "networkidle" });
@@ -29,12 +29,19 @@ test("real remote host completes edit, reconnect, render, and download", async (
   await expect(page.getByText(/00:00:00\.(?:799|8)/)).toBeVisible();
   await reconcileUnconfirmedEdit(page);
 
+  const renderRequests: string[] = [];
+  page.on("request", (request) => {
+    if (!request.url().endsWith("/api/v1/rpc") || request.method() !== "POST") return;
+    const envelope = request.postDataJSON();
+    if (envelope.operation === "render_media_to_split_project_folder") renderRequests.push(envelope.payload.jobId);
+  });
   const artifact = await exportAndDownload(page, "Desktop remote acceptance", {
     disconnectDuringRender: true,
   });
   const path = testInfo.outputPath("desktop-remote-acceptance.mp4");
   await artifact.saveAs(path);
   expect((await artifact.createReadStream())).not.toBeNull();
-  const evidence = await waitForHostRenderEvidence("Desktop remote acceptance");
+  expect(renderRequests).toHaveLength(1);
+  const evidence = await waitForHostRenderEvidence("Desktop remote acceptance", renderRequests[0]);
   expect((await stat(path)).size).toBe(evidence.outputBytes);
 });

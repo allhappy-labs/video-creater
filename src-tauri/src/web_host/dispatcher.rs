@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::sync::Arc;
 
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -62,7 +62,7 @@ use super::project_catalog::ProjectCatalog;
 use super::rpc::{RpcDispatcher, RpcEnvelope};
 
 pub struct HostDispatcher {
-    preferences: Mutex<Value>,
+    settings: Arc<settings::HostSettings>,
     projects: Option<ProjectCatalog>,
     agent_fixture: bool,
 }
@@ -70,7 +70,7 @@ pub struct HostDispatcher {
 impl Default for HostDispatcher {
     fn default() -> Self {
         Self {
-            preferences: Mutex::new(default_preferences()),
+            settings: Arc::new(settings::HostSettings::default()),
             projects: None,
             agent_fixture: false,
         }
@@ -80,7 +80,19 @@ impl Default for HostDispatcher {
 #[path = "dispatcher_creation.rs"]
 mod creation;
 
+#[path = "dispatcher_workflows.rs"]
+mod workflows;
+
+#[path = "dispatcher_settings.rs"]
+mod settings;
+
+#[path = "dispatcher_reconcile.rs"]
+mod reconcile;
+
 impl RpcDispatcher for HostDispatcher {
+    fn set_event_sink(&self, sink: Arc<dyn crate::app_service::events::EventSink>) {
+        self.settings.set_event_sink(sink);
+    }
     fn dispatch_with_creation_nonce(
         &self,
         request: &RpcEnvelope,
@@ -107,6 +119,12 @@ impl RpcDispatcher for HostDispatcher {
     }
 
     fn dispatch_typed(&self, request: &RpcEnvelope) -> Result<Value, ServiceError> {
+        if let Some(result) = self.dispatch_settings(request) {
+            return result;
+        }
+        if let Some(result) = self.dispatch_workflow(request) {
+            return result;
+        }
         if request.operation == "render_media_to_split_project_folder"
             && request.payload.get("admissionProtocol").is_some()
         {
@@ -134,6 +152,12 @@ impl RpcDispatcher for HostDispatcher {
     }
 
     fn dispatch(&self, request: &RpcEnvelope) -> Result<Value, String> {
+        if let Some(result) = self.dispatch_settings(request) {
+            return result.map_err(|error| error.to_string());
+        }
+        if let Some(result) = self.dispatch_workflow(request) {
+            return result.map_err(|error| error.to_string());
+        }
         match request.operation.as_str() {
             "get_platform_info" => Ok(json!({ "platform": host_platform() })),
             "get_remote_access_status" => Ok(json!({
@@ -143,23 +167,6 @@ impl RpcDispatcher for HostDispatcher {
                 ),
                 "managementAvailable": false,
                 "detail": "Remote access is managed on the host machine."
-            })),
-            "get_app_preferences" => Ok(self
-                .preferences
-                .lock()
-                .map_err(|_| "preferences lock failed".to_string())?
-                .clone()),
-            "update_app_preferences" => self.update_preferences(&request.payload),
-            "list_transcription_models" => Ok(json!([])),
-            "get_active_transcription_model" => Ok(Value::Null),
-            "get_transcription_runtime_status" => Ok(json!({
-                "selection": "unavailable",
-                "detail": "No transcription runtime is selected."
-            })),
-            "get_production_speech_model_status" => Ok(json!({
-                "ready": false,
-                "models": [],
-                "detail": "Speech models are not installed."
             })),
             "get_export_profile_availability_report" => {
                 serde_json::to_value(mp4_export_profile_availability_report())
@@ -191,17 +198,6 @@ impl RpcDispatcher for HostDispatcher {
             "load_job_progress_from_split_project_folder" => self
                 .job_progress(request)
                 .map_err(|error| error.to_string()),
-            "reconcile_temporal_jobs_in_split_project_folder" => {
-                let path = self.resolve_project(request)?;
-                let project =
-                    load_split_project(&path).map_err(|_| "project could not be loaded")?;
-                Ok(json!({
-                    "project": project,
-                    "failedJobIds": [],
-                    "serviceReachable": true,
-                    "detail": null
-                }))
-            }
             "load_render_pipeline_report_from_split_project_folder" => {
                 let path = self.resolve_project(request)?;
                 let job_id = required_string(&request.payload, "jobId")?;
@@ -281,7 +277,7 @@ impl RpcDispatcher for HostDispatcher {
 impl HostDispatcher {
     pub fn with_project_catalog(projects: ProjectCatalog) -> Self {
         Self {
-            preferences: Mutex::new(default_preferences()),
+            settings: Arc::new(settings::HostSettings::default()),
             projects: Some(projects),
             agent_fixture: remote_agent_fixture_enabled(),
         }
@@ -293,30 +289,10 @@ impl HostDispatcher {
         agent_fixture: bool,
     ) -> Self {
         Self {
-            preferences: Mutex::new(default_preferences()),
+            settings: Arc::new(settings::HostSettings::default()),
             projects: Some(projects),
             agent_fixture,
         }
-    }
-
-    fn update_preferences(&self, payload: &Value) -> Result<Value, String> {
-        let patch = payload
-            .get("patch")
-            .and_then(Value::as_object)
-            .ok_or_else(|| "preferences patch is required".to_string())?;
-        let mut preferences = self
-            .preferences
-            .lock()
-            .map_err(|_| "preferences lock failed".to_string())?;
-        let target = preferences
-            .as_object_mut()
-            .ok_or_else(|| "preferences state is invalid".to_string())?;
-        for (key, value) in patch {
-            if key != "schemaVersion" {
-                target.insert(key.clone(), value.clone());
-            }
-        }
-        Ok(preferences.clone())
     }
 
     fn projects(&self) -> Result<&ProjectCatalog, String> {
@@ -1273,27 +1249,6 @@ fn host_platform() -> &'static str {
     } else {
         "other"
     }
-}
-
-fn default_preferences() -> Value {
-    json!({
-        "schemaVersion": 2,
-        "projectLocation": { "mode": "ask" },
-        "requireProviderUploadConfirmation": true,
-        "renderCompletionNotifications": false,
-        "newProjectDefaults": {
-            "width": 1920,
-            "height": 1080,
-            "fps": 30,
-            "loudnessLufs": -14,
-            "captions": "burn_in"
-        },
-        "enabledGenerationModelIds": [],
-        "generationExecutionBackend": "inProcess",
-        "agentBackend": "automatic",
-        "claudeModel": "sonnet",
-        "claudeExecutablePath": ""
-    })
 }
 
 #[cfg(test)]

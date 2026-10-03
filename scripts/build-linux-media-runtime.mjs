@@ -718,7 +718,7 @@ function main() {
 // Copies the redistributable part of a staged runtime (no symlinks): manifest.json,
 // bundled-plugins/, lib/ (bundled FFmpeg only) and licenses/. The application
 // recreates plugins/, libexec/ and lib/libgstreamer-1.0.so.0 from manifest.linux.
-function stagePackageTree(runtimeRoot, destination) {
+export function stagePackageTree(runtimeRoot, destination) {
   rmSync(destination, { recursive: true, force: true });
   mkdirSync(destination, { recursive: true });
   copyFileSync(join(runtimeRoot, "manifest.json"), join(destination, "manifest.json"));
@@ -1066,4 +1066,3 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     process.exit(1);
   }
 }
-

@@ -9,6 +9,8 @@ StartLimitBurst=3
 [Service]
 Type=simple
 EnvironmentFile=%h/.config/video-creater/remote-host.env
+Environment=XDG_DATA_HOME=%h/.local/state/video-creater/data
+Environment=XDG_CACHE_HOME=%h/.local/state/video-creater/cache
 ExecStart=%h/.local/lib/video-creater-host/bin/video-creater-host --bind 127.0.0.1:4777 --assets-dir %h/.local/lib/video-creater-host/web
 Restart=on-failure
 RestartSec=5

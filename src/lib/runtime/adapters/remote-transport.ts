@@ -45,6 +45,13 @@ export interface RemoteRequestTiming {
 
 let currentSessionGeneration = 0;
 const maximumCanonicalProjectIds = 32;
+const remoteWorkflowBuilders = new Set([
+  "build_temporal_job_summary", "build_temporal_transcribe_media_start_request",
+  "build_temporal_generate_media_start_request", "build_temporal_start_result_action",
+  "build_temporal_generate_media_failure_actions", "build_temporal_export_media_start_request",
+  "build_temporal_export_project_bundle_start_request", "build_temporal_export_nle_xml_start_request",
+  "build_temporal_codex_edit_start_request",
+]);
 const unconfirmedCreationMessage = "Project creation could not be confirmed. Refresh host projects and open the project from My Projects if it appears. New project creation stays paused while this request is unconfirmed.";
 interface PendingOutcome {
   readonly envelope?: string | undefined;
@@ -103,7 +110,15 @@ export class RemoteTransport implements BackendTransport {
   }
 
   request<Result>(operation: string, input: BackendInput = {}): Promise<Result> {
-    const projectId = projectIdFor(input);
+    // Desktop builders stay internal. Remote equivalents resolve the opened catalog
+    // identity and validate against the host's saved project before constructing data.
+    if (remoteWorkflowBuilders.has(operation)) operation = `remote_${operation}`;
+    else if (operation === "start_temporal_workflow") operation = "remote_start_temporal_workflow";
+    let projectId = projectIdFor(input);
+    if (projectId && !this.canonicalProjectIds.has(projectId)) {
+      const opened = [...this.canonicalProjectIds].find(([, canonicalId]) => canonicalId === projectId);
+      if (opened) projectId = opened[0];
+    }
     const requestId = this.options.outcomeProtocol === 1 ? `browser-v2-${Math.floor(Date.now() / 1000)}-${randomId()}` : `browser-${randomId()}`;
     if (projectId && !this.unknownOutcomes.has(projectId) && this.unknownOutcomes.size >= 8 && remoteOperationClass(operation, input) !== "read" && !operation.startsWith("cancel_")) {
       return Promise.reject(new RemoteOperationError(operation, "busy", "Refresh unconfirmed projects before starting more work.", requestId, "queue", "not_sent"));

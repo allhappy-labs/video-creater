@@ -42,3 +42,33 @@ fn disconnect_grace_allows_reconnect_then_expires_without_affecting_background_j
     );
     assert!(leases.background_job_allowed("project-1"));
 }
+
+#[test]
+fn authenticated_reacquisition_and_takeover_recover_after_disconnect_grace() {
+    let leases = LeaseManager::new(30, 5);
+    leases.acquire("project-1", "session-a", 100).unwrap();
+    leases.disconnected("session-a", 101);
+    let renewed = leases
+        .acquire_or_renew_for_session("project-1", "session-a", 107)
+        .unwrap();
+    assert_eq!(
+        leases.validate("project-1", "session-a", &renewed.token, 107),
+        Ok(())
+    );
+
+    leases.disconnected("session-a", 108);
+    let reacquired = leases
+        .acquire_or_renew_for_session("project-1", "session-a", 150)
+        .unwrap();
+    assert_eq!(
+        leases.validate("project-1", "session-a", &reacquired.token, 150),
+        Ok(())
+    );
+
+    leases.disconnected("session-a", 151);
+    let takeover = leases.takeover("project-1", "session-a", 157).unwrap();
+    assert_eq!(
+        leases.validate("project-1", "session-a", &takeover.token, 157),
+        Ok(())
+    );
+}

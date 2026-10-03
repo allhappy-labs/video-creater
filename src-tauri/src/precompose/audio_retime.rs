@@ -191,8 +191,10 @@ fn prepare_task(
     }
     let head_seconds = (source_in - start) / task.speed;
     let source_path = project_dir.join(&media.relative_path);
-    let source_sha256 = super::cache::sha256_file(&source_path)
-        .map_err(|error| io_error(&task.item_id, "source read", error))?;
+    let source_sha256 = super::cache::sha256_file_cancellable(&source_path, || {
+        cancellation.is_some_and(RenderCancellationToken::is_cancelled)
+    })
+    .map_err(|error| io_error(&task.item_id, "source read", error))?;
     let fingerprint = super::cache::fingerprint(&Fingerprint {
         schema_version: CACHE_VERSION,
         source_sha256: &source_sha256,

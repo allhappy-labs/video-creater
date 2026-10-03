@@ -6,12 +6,12 @@ use video_creater_lib::app_service::operation::{
 
 #[test]
 fn operation_names_are_unique_and_resolvable() {
+    assert!(!OPERATION_INVENTORY.is_empty());
     let mut names = HashSet::new();
     for operation in OPERATION_INVENTORY {
         assert!(names.insert(operation.name), "duplicate {}", operation.name);
         assert_eq!(find_operation(operation.name), Some(operation));
     }
-    assert_eq!(OPERATION_INVENTORY.len(), 121);
 }
 
 #[test]

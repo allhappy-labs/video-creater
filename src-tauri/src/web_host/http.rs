@@ -77,6 +77,19 @@ struct HostHttpState {
     allow_direct_test_identity: bool,
 }
 
+struct EventConnection {
+    state: Arc<HostHttpState>,
+    session_id: String,
+}
+
+impl Drop for EventConnection {
+    fn drop(&mut self) {
+        self.state
+            .leases
+            .disconnected(&self.session_id, self.state.now());
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PairRequest {
@@ -181,6 +194,8 @@ pub fn host_router(
         )
         .map_err(|_| "durable request outcome journal could not be opened".to_string())?,
     );
+    let event_hub = Arc::new(EventHub::new(1_024, 128));
+    dispatcher.set_event_sink(event_hub.clone());
     let state = Arc::new(HostHttpState {
         origin: config.public_origin.trim_end_matches('/').to_owned(),
         host_label: config.host_label,
@@ -200,7 +215,7 @@ pub fn host_router(
         rpc: RpcEngine::with_outcome_store(dispatcher, Arc::clone(&outcomes)),
         outcomes,
         outcome_slots: Arc::new(tokio::sync::Semaphore::new(64)),
-        events: Arc::new(EventHub::new(1_024, 128)),
+        events: event_hub,
         uploads,
         projects: config.project_catalog,
         leases: LeaseManager::new(30, 10),
@@ -879,7 +894,11 @@ async fn event_socket(
     session_id: String,
     after_sequence: u64,
 ) {
-    let source = match hub.subscribe(after_sequence) {
+    let mut authorization_changes = state.sessions.authorization_changes();
+    if !state.sessions.is_active(&session_id, state.now()) {
+        return;
+    }
+    let mut source = match hub.subscribe_async(after_sequence) {
         Ok(source) => source,
         Err(ResumeResult::SnapshotRequired {
             oldest_sequence,
@@ -892,30 +911,54 @@ async fn event_socket(
                 "latestSequence": latest_sequence,
             });
             let _ = sender.send(Message::Text(message.to_string().into())).await;
-            state.leases.disconnected(&session_id, state.now());
             return;
         }
         Err(ResumeResult::Events(_)) => {
-            state.leases.disconnected(&session_id, state.now());
             return;
         }
     };
-    let (forward, mut outbound) = tokio::sync::mpsc::channel(32);
-    std::thread::spawn(move || {
-        while let Ok(event) = source.recv() {
-            if forward.blocking_send(event).is_err() {
-                break;
-            }
-        }
-    });
+    state.leases.connected(&session_id);
+    let connection = EventConnection {
+        state: Arc::clone(&state),
+        session_id: session_id.clone(),
+    };
     let (mut sender, mut receiver) = socket.split();
-    loop {
+    let mut expiry_check = tokio::time::interval(std::time::Duration::from_secs(1));
+    'socket: loop {
+        if !state.sessions.is_active(&session_id, state.now()) {
+            break;
+        }
         tokio::select! {
-            event = outbound.recv() => {
+            event = source.recv() => {
                 let Some(event) = event else { break };
+                if !state.sessions.is_active(&session_id, state.now()) { break; }
                 let Ok(text) = serde_json::to_string(&event) else { break };
-                if sender.send(Message::Text(text.into())).await.is_err() { break }
+                let send = sender.send(Message::Text(text.into()));
+                tokio::pin!(send);
+                let deadline = tokio::time::sleep(std::time::Duration::from_secs(5));
+                tokio::pin!(deadline);
+                loop {
+                    tokio::select! {
+                        result = &mut send => {
+                            if result.is_err() { break 'socket; }
+                            break;
+                        }
+                        changed = authorization_changes.changed() => {
+                            if changed.is_err() || !state.sessions.is_active(&session_id, state.now()) {
+                                break 'socket;
+                            }
+                        }
+                        _ = expiry_check.tick() => {
+                            if !state.sessions.is_active(&session_id, state.now()) { break 'socket; }
+                        }
+                        _ = &mut deadline => break 'socket,
+                    }
+                }
             }
+            changed = authorization_changes.changed() => {
+                if changed.is_err() { break; }
+            }
+            _ = expiry_check.tick() => {}
             incoming = receiver.next() => {
                 match incoming {
                     Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
@@ -924,7 +967,9 @@ async fn event_socket(
             }
         }
     }
-    state.leases.disconnected(&session_id, state.now());
+    drop(source);
+    drop(connection);
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(1), sender.close()).await;
 }
 
 async fn pair(

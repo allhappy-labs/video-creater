@@ -50,6 +50,15 @@ pub mod renderer {
 
         render_graphics_preview(layer, assets, options)
     }
+    pub fn render_graphics_preview_range_cancellable(
+        layer: &GraphicsLayer,
+        _source_range: Option<(f64, f64)>,
+        assets: &AssetRegistry,
+        options: GraphicsRenderOptions,
+        is_cancelled: impl Fn() -> bool,
+    ) -> ActionableResult<GraphicsArtifactManifest> {
+        render_graphics_preview_cancellable(layer, assets, options, is_cancelled)
+    }
 }
 pub mod shader_noise;
 pub mod templates;

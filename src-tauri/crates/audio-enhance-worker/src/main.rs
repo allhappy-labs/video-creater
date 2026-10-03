@@ -394,10 +394,28 @@ mod tests {
         assert!(error.0.contains("48000"), "{error}");
     }
 
-    // tract-core 0.21.4 runs `check_compact` only under `debug_assertions`, and that check
-    // rejects the embedded DeepFilterNet3 graph after codegen ("duplicate name
-    // /convt3/Conv.bias"). Release builds skip the check and run the model correctly; the
-    // helper is always shipped with the release profile.
+    #[test]
+    fn nnef_rejects_tensor_byte_length_overflow_before_allocation() {
+        // GHSA-x5mv-8wgw-29hg's F64 witness: the element count fits usize on
+        // x86_64, but its byte count wraps to 56 in the vulnerable loader.
+        let mut tensor = vec![0u8; 128 + 56];
+        tensor[..4].copy_from_slice(&[0x4e, 0xef, 1, 0]);
+        tensor[4..8].copy_from_slice(&56u32.to_le_bytes());
+        tensor[8..12].copy_from_slice(&6u32.to_le_bytes());
+        for (index, dimension) in [33955849u32, 7005787, 359, 3, 3, 3].iter().enumerate() {
+            tensor[12 + index * 4..16 + index * 4].copy_from_slice(&dimension.to_le_bytes());
+        }
+        tensor[44..48].copy_from_slice(&64u32.to_le_bytes());
+        let error = tract_nnef::tensors::read_tensor(tensor.as_slice())
+            .expect_err("overflowing NNEF tensor dimensions must be rejected");
+        assert!(
+            error.to_string().contains("Shape and len mismatch"),
+            "{error}"
+        );
+    }
+
+    // Production always uses the release profile; keep the inference contract
+    // in that profile even if upstream's debug graph checks change.
     #[test]
     #[cfg_attr(
         debug_assertions,

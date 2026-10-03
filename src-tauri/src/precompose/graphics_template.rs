@@ -11,7 +11,7 @@ use super::{
 };
 use crate::gpu_graphics::ir::{GpuGraphicRole, GpuGraphicsLayer, ShaderLanguage, ShaderPass};
 use crate::gpu_graphics::profile::shadertoy_fragment_source;
-use crate::gpu_graphics::renderer::{render_gpu_graphics_layer, GpuRenderOptions};
+use crate::gpu_graphics::renderer::{render_gpu_graphics_layer_cancellable, GpuRenderOptions};
 use crate::gpu_graphics::templates::project_shader_background_templates;
 use crate::graphics::assets::AssetRegistry;
 use crate::graphics::ir::{Dimensions, GraphicsLayer};
@@ -33,7 +33,7 @@ use uuid::Uuid;
 
 #[derive(Serialize)]
 #[serde(tag = "renderer", content = "layer")]
-enum TemplateLayer {
+pub(super) enum TemplateLayer {
     Shader(Box<GpuGraphicsLayer>),
     Motion(Box<GraphicsLayer>),
 }
@@ -80,11 +80,12 @@ pub(super) fn prepare_graphics_templates(
                 let staging = directory.with_extension(format!("staging-{}", Uuid::new_v4()));
                 let mut cleanup = StagingCleanup::new(staging.clone());
                 let manifest = match &layer {
-                    TemplateLayer::Shader(layer) => render_gpu_graphics_layer(
+                    TemplateLayer::Shader(layer) => render_gpu_graphics_layer_cancellable(
                         layer,
                         GpuRenderOptions {
                             output_dir: staging.clone(),
                         },
+                        || cancellation.is_some_and(RenderCancellationToken::is_cancelled),
                     )
                     .map_err(crate::gpu_graphics::error::gpu_errors_to_pipeline_errors)?,
                     TemplateLayer::Motion(layer) => render_graphics_preview_cancellable(
@@ -239,7 +240,7 @@ pub(super) fn prepare_graphics_templates(
     Ok(reports)
 }
 
-fn template_layer(
+pub(super) fn template_layer(
     project_dir: &Path,
     project: &VideoProject,
     item: &TimelineItem,
@@ -255,16 +256,17 @@ fn template_layer(
             .find(|template| template.config.id == id)
             .ok_or_else(|| template_error(item, "Shader background template was not found."))?;
         let config = template.config;
+        let (width, height) = shader_working_dimensions(
+            project.render_settings.width,
+            project.render_settings.height,
+        );
         Ok(TemplateLayer::Shader(Box::new(GpuGraphicsLayer {
             schema_version: 1,
             id: item.id.clone(),
             role: GpuGraphicRole::ShaderBackground,
             timeline_start: 0.0,
             duration_seconds: item.duration_seconds,
-            dimensions: Dimensions {
-                width: project.render_settings.width,
-                height: project.render_settings.height,
-            },
+            dimensions: Dimensions { width, height },
             fps: project.render_settings.fps,
             alpha: config.render_contract.alpha,
             source_beat: item.label.clone(),
@@ -308,4 +310,21 @@ fn template_error(item: &TimelineItem, message: &str) -> Vec<PipelineError> {
         "Inspect the template and render runtime, then retry preview preparation.",
     )
     .with_detail("itemId", item.id.clone())]
+}
+
+// Keep shader work within the validated GPU pixel budget, preserving portrait
+// and landscape aspect ratios. Prepared media scales to the delivery canvas.
+fn shader_working_dimensions(width: u32, height: u32) -> (u32, u32) {
+    let edge = width.max(height) as f64;
+    let pixels = f64::from(width) * f64::from(height);
+    let scale = (1920.0 / edge)
+        .min((1920.0 * 1080.0 / pixels).sqrt())
+        .min(1.0);
+    if scale >= 1.0 {
+        return (width, height);
+    }
+    (
+        ((f64::from(width) * scale).floor() as u32 / 2 * 2).max(2),
+        ((f64::from(height) * scale).floor() as u32 / 2 * 2).max(2),
+    )
 }

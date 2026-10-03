@@ -30,7 +30,9 @@ function numberField(input: BackendInput, key: string): number | undefined {
 }
 
 export function projectIdFor(input: BackendInput): string | undefined {
-  return stringField(input, "projectDir") ?? stringField(input, "projectId");
+  const startRequest = input.startRequest ?? (typeof input.job === "object" && input.job !== null ? (input.job as BackendInput).startRequest : undefined);
+  const workflowInput = typeof startRequest === "object" && startRequest !== null ? (startRequest as BackendInput).input : undefined;
+  return stringField(input, "projectDir") ?? stringFieldFromUnknown(workflowInput, "projectDir") ?? stringField(input, "projectId") ?? stringField(input, "projectRoot");
 }
 
 export function expectedRevisionFor(input: BackendInput, projectId: string | undefined): number | undefined {

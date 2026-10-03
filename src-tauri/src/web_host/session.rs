@@ -65,6 +65,7 @@ pub struct SessionStore {
     origin: String,
     lifetime_seconds: u64,
     state: Mutex<SessionFile>,
+    authorization_changes: tokio::sync::watch::Sender<()>,
 }
 
 impl SessionStore {
@@ -110,6 +111,7 @@ impl SessionStore {
             origin: origin.trim_end_matches('/').to_owned(),
             lifetime_seconds,
             state: Mutex::new(state),
+            authorization_changes: tokio::sync::watch::channel(()).0,
         })
     }
 
@@ -153,6 +155,19 @@ impl SessionStore {
             return Err(SessionError::Identity);
         }
         Ok(session)
+    }
+
+    /// Open event streams must follow revocation and expiry after their handshake.
+    pub fn is_active(&self, session_id: &str, now: u64) -> bool {
+        self.state.lock().is_ok_and(|state| {
+            state.sessions.iter().any(|session| {
+                session.id == session_id && !session.revoked && now <= session.expires_at
+            })
+        })
+    }
+
+    pub fn authorization_changes(&self) -> tokio::sync::watch::Receiver<()> {
+        self.authorization_changes.subscribe()
     }
 
     pub fn authorize_mutation(
@@ -289,6 +304,7 @@ impl SessionStore {
         let value = change(&mut next)?;
         self.persist(&next)?;
         *state = next;
+        self.authorization_changes.send_replace(());
         Ok(value)
     }
 

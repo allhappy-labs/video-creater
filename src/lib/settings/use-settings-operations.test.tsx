@@ -137,7 +137,7 @@ describe("useSettingsOperations", () => {
     await waitFor(() => expect(listenMock).toHaveBeenCalledTimes(1));
 
     await act(async () => {
-      listener.resolve(vi.fn());
+      listener.resolve(vi.fn<() => void>());
       await listener.promise;
     });
 
@@ -177,7 +177,7 @@ describe("useSettingsOperations", () => {
     expect(result.current.operations).toEqual([retained, live]);
 
     await act(async () => {
-      listener.resolve(vi.fn());
+      listener.resolve(vi.fn<() => void>());
       await listener.promise;
       gapPoll.resolve([retained, live]);
       await gapPoll.promise;

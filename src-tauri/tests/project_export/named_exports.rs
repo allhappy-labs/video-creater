@@ -2,26 +2,31 @@
 //! artifact and recorded export settings.
 
 use super::export_job_summary;
+#[cfg(feature = "ges-render")]
 use serde_json::json;
 use std::fs;
 use std::path::Path;
 use std::time::Duration;
-use video_creater_lib::edit::render_plan::{ExportEncodeTier, RenderQuality};
+#[cfg(feature = "ges-render")]
+use video_creater_lib::edit::render_plan::ExportEncodeTier;
+use video_creater_lib::edit::render_plan::RenderQuality;
 use video_creater_lib::project::export_destination::ExportOutputRequest;
 use video_creater_lib::project::export_options::ExportRenderOptions;
-use video_creater_lib::project::export_profiles::{
-    mp4_export_profile_availability_report, ExportProfile,
-};
+#[cfg(feature = "ges-render")]
+use video_creater_lib::project::export_profiles::mp4_export_profile_availability_report;
+use video_creater_lib::project::export_profiles::ExportProfile;
 use video_creater_lib::project::fixtures::sample_project;
 use video_creater_lib::project::model::{JobStatus, VideoProject};
 use video_creater_lib::project::split::{load_split_project, save_split_project};
 use video_creater_lib::render_pipeline::error::PipelineError;
+#[cfg(feature = "ges-render")]
 use video_creater_lib::render_pipeline::gstreamer_backend::{
     generate_fixture_source_with_gstreamer, probe_media_with_gstreamer,
 };
 use video_creater_lib::render_pipeline::project_export::{
     render_media_export_to_split_project_folder, MediaExportRequest, ProjectMediaRenderResult,
 };
+#[cfg(feature = "ges-render")]
 use video_creater_lib::render_runtime::start_render_process_runtime;
 
 const UPDATED_AT: &str = "2026-09-17T10:00:00Z";
@@ -59,6 +64,7 @@ fn export(
 
 /// The 320x180, 24 fps, 3 s fixture project, or `None` when `profile` can't
 /// render here (the caller reports the test as not run).
+#[cfg(feature = "ges-render")]
 pub(super) fn fixture_project(
     test: &str,
     profile: ExportProfile,
@@ -68,6 +74,7 @@ pub(super) fn fixture_project(
 
 /// [`fixture_project`] with a chosen timeline length, for tests that need a render long enough
 /// to observe something happening while it encodes.
+#[cfg(feature = "ges-render")]
 pub(super) fn fixture_project_of_length(
     test: &str,
     profile: ExportProfile,

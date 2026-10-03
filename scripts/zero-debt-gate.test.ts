@@ -31,7 +31,7 @@ test("frontend verification contains no native work", () => {
 test("canonical release verification delegates bounded native work", () => {
   assert.equal(
     packageJson.scripts?.["verify:release"],
-    "pnpm verify:frontend && pnpm test:gstreamer-release-policy && pnpm test:release-runtime-policy && pnpm check:release-runtime-policy && pnpm test:verification-policy && pnpm verify:native:release",
+    "pnpm check:dependency-security && pnpm check:rust-security && pnpm verify:frontend && pnpm test:gstreamer-release-policy && pnpm test:release-runtime-policy && pnpm check:release-runtime-policy && pnpm test:verification-policy && pnpm verify:native:release",
   );
   assert.equal(packageJson.scripts?.["verify:zero-debt"], "pnpm verify:release");
   assert.equal(packageJson.scripts?.verify, "pnpm verify:release");

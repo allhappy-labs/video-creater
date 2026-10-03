@@ -3,13 +3,12 @@ use crate::edit::render_plan::{
     TemplateRenderLayer,
 };
 use crate::frame_compositor::PreparedEffectStack;
-use crate::graphics::animation::bake_node_at_time;
 use crate::graphics::assets::AssetRegistry;
 use crate::graphics::ir::{
     Color, Dimensions, GraphicNode, GraphicRole, GraphicsLayer, Rect, RectNode,
 };
 use crate::graphics::manifest::GraphicsArtifactManifest;
-use crate::graphics::renderer::{render_graphics_preview_cancellable, GraphicsRenderOptions};
+use crate::graphics::renderer::{render_graphics_preview_range_cancellable, GraphicsRenderOptions};
 use crate::graphics::templates::template_layer_to_graphics_ir;
 use crate::precompose::compatibility::extract_compatibility_frames_cancellable_with_publish_validator;
 use crate::precompose::prepare_project_for_render_cancellable;
@@ -550,6 +549,7 @@ pub fn load_project_render_pipeline_report(
 #[derive(Debug, Clone, PartialEq)]
 struct ProjectGraphicsLayer {
     layer: GraphicsLayer,
+    source_range: Option<(f64, f64)>,
     template_id: Option<String>,
     motion_preset_id: Option<String>,
 }
@@ -3519,24 +3519,15 @@ fn build_project_graphics_render_layers(
         }
 
         for item in &track.items {
-            let trimmed_item;
-            let mut single_frame_sample = None;
-            let item = if let Some((range_start_seconds, range_end_seconds)) = range_seconds {
-                let Some(range_item) =
-                    trim_visual_item_to_range(item, range_start_seconds, range_end_seconds)
-                else {
+            let source_range = if let Some((range_start, range_end)) = range_seconds {
+                let start = item.start_seconds.max(range_start);
+                let end = (item.start_seconds + item.duration_seconds).min(range_end);
+                if end <= start {
                     continue;
-                };
-                if range_end_seconds - range_start_seconds <= 1.0 / fps + 1e-6 {
-                    single_frame_sample = Some((
-                        range_start_seconds.max(item.start_seconds) - item.start_seconds,
-                        item.duration_seconds,
-                    ));
                 }
-                trimmed_item = range_item;
-                &trimmed_item
+                Some((start - item.start_seconds, end - start))
             } else {
-                item
+                None
             };
 
             if matches!(
@@ -3547,13 +3538,15 @@ fn build_project_graphics_render_layers(
             ) {
                 if let Some(layer) = project_visual_effect_graphics_layer(item, width, height, fps)
                 {
-                    graphics_layers.push(bake_single_frame_graphics_sample(
+                    graphics_layers.push(sample_graphics_range(
                         ProjectGraphicsLayer {
                             layer,
+                            source_range: None,
                             template_id: None,
                             motion_preset_id: None,
                         },
-                        single_frame_sample,
+                        source_range,
+                        range_seconds.map(|range| range.0),
                     ));
                 }
             }
@@ -3561,8 +3554,9 @@ fn build_project_graphics_render_layers(
             match item.kind {
                 TimelineItemKind::Caption => {
                     let caption = project_caption_value(item)?;
-                    graphics_layers.push(bake_single_frame_graphics_sample(
+                    graphics_layers.push(sample_graphics_range(
                         ProjectGraphicsLayer {
+                            source_range: None,
                             layer: caption_to_graphics_layer(
                                 &caption,
                                 graphics_layers.len(),
@@ -3576,7 +3570,8 @@ fn build_project_graphics_render_layers(
                                     .unwrap_or_else(|| "snap-pop-v1".to_string()),
                             ),
                         },
-                        single_frame_sample,
+                        source_range,
+                        range_seconds.map(|range| range.0),
                     ));
                 }
                 TimelineItemKind::Overlay => {
@@ -3589,8 +3584,9 @@ fn build_project_graphics_render_layers(
                                 .and_then(project_template_motion_preset)
                         })
                         .or_else(|| Some("slide-fade-up-v1".to_string()));
-                    graphics_layers.push(bake_single_frame_graphics_sample(
+                    graphics_layers.push(sample_graphics_range(
                         ProjectGraphicsLayer {
+                            source_range: None,
                             layer: overlay_to_graphics_layer(
                                 &overlay,
                                 graphics_layers.len(),
@@ -3601,19 +3597,22 @@ fn build_project_graphics_render_layers(
                             template_id,
                             motion_preset_id,
                         },
-                        single_frame_sample,
+                        source_range,
+                        range_seconds.map(|range| range.0),
                     ));
                 }
                 TimelineItemKind::HyperframeScene => {
                     let (layer, template_id, motion_preset_id) =
                         project_hyperframe_layer(item, width, height, fps)?;
-                    graphics_layers.push(bake_single_frame_graphics_sample(
+                    graphics_layers.push(sample_graphics_range(
                         ProjectGraphicsLayer {
                             layer,
+                            source_range: None,
                             template_id: Some(template_id),
                             motion_preset_id,
                         },
-                        single_frame_sample,
+                        source_range,
+                        range_seconds.map(|range| range.0),
                     ));
                 }
                 _ => {}
@@ -3621,28 +3620,31 @@ fn build_project_graphics_render_layers(
         }
     }
 
+    // Keep authored draw order even when clipping maps several active layers
+    // to delivery time zero. Subtracting the sample offset recovers their
+    // original start order (the range start is common to all layers).
+    let authored_start = |graphics: &ProjectGraphicsLayer| {
+        graphics.layer.timeline_start - graphics.source_range.map_or(0.0, |range| range.0)
+    };
     graphics_layers.sort_by(|left, right| {
-        left.layer
-            .timeline_start
-            .total_cmp(&right.layer.timeline_start)
+        authored_start(left)
+            .total_cmp(&authored_start(right))
             .then_with(|| left.layer.id.cmp(&right.layer.id))
     });
     Ok(graphics_layers)
 }
 
-fn bake_single_frame_graphics_sample(
+fn sample_graphics_range(
     mut graphics: ProjectGraphicsLayer,
-    sample: Option<(f64, f64)>,
+    source_range: Option<(f64, f64)>,
+    timeline_range_start: Option<f64>,
 ) -> ProjectGraphicsLayer {
-    let Some((source_time_seconds, source_duration_seconds)) = sample else {
-        return graphics;
-    };
-    graphics.layer.nodes = graphics
-        .layer
-        .nodes
-        .iter()
-        .map(|node| bake_node_at_time(node, source_time_seconds, source_duration_seconds))
-        .collect();
+    if let Some((offset, _)) = source_range {
+        graphics.layer.timeline_start = round_seconds(
+            graphics.layer.timeline_start + offset - timeline_range_start.unwrap_or(0.0),
+        );
+        graphics.source_range = source_range;
+    }
     graphics
 }
 
@@ -3709,24 +3711,6 @@ fn project_visual_effect_graphics_layer(
     })
 }
 
-fn trim_visual_item_to_range(
-    item: &TimelineItem,
-    range_start_seconds: f64,
-    range_end_seconds: f64,
-) -> Option<TimelineItem> {
-    let item_end_seconds = item.start_seconds + item.duration_seconds;
-    let overlap_start_seconds = item.start_seconds.max(range_start_seconds);
-    let overlap_end_seconds = item_end_seconds.min(range_end_seconds);
-    if overlap_end_seconds <= overlap_start_seconds {
-        return None;
-    }
-
-    let mut trimmed = item.clone();
-    trimmed.start_seconds = round_seconds(overlap_start_seconds - range_start_seconds);
-    trimmed.duration_seconds = round_seconds(overlap_end_seconds - overlap_start_seconds);
-    Some(trimmed)
-}
-
 fn render_project_graphics_layers(
     graphics_layers: &[ProjectGraphicsLayer],
     project_dir: &Path,
@@ -3740,8 +3724,9 @@ fn render_project_graphics_layers(
         ensure_render_not_cancelled(cancellation, "graphics.cancelled")?;
         let layer_dir = graphics_dir.join(safe_path_segment(&graphics.layer.id));
         let manifest = run_cancellable_render_stage(cancellation, "graphics.cancelled", || {
-            render_graphics_preview_cancellable(
+            render_graphics_preview_range_cancellable(
                 &graphics.layer,
+                graphics.source_range,
                 &assets,
                 GraphicsRenderOptions {
                     output_dir: layer_dir.clone(),
@@ -5110,6 +5095,135 @@ mod tests {
     use crate::render_pipeline::avfoundation_backend::{
         AvFoundationCapabilities, AvFoundationExportProfile,
     };
+
+    #[test]
+    fn ranged_graphics_preserve_original_stacking_order() {
+        let mut project = sample_project();
+        project.timeline.tracks.truncate(1);
+        let track = &mut project.timeline.tracks[0];
+        track.kind = TrackKind::Caption;
+        track.items = [("z-earlier", 0.0), ("a-later", 1.0)]
+            .into_iter()
+            .map(|(id, start)| TimelineItem {
+                id: id.into(),
+                kind: TimelineItemKind::Caption,
+                start_seconds: start,
+                duration_seconds: 3.0,
+                source: TimelineSource::Text { text: id.into() },
+                label: id.into(),
+                properties: BTreeMap::from([
+                    ("visualTreatment".into(), json!("accent emphasis")),
+                    ("motion".into(), json!("snap pop")),
+                    ("safeZone".into(), json!("10% margins")),
+                    ("avoid".into(), json!("opaque slabs")),
+                ]),
+            })
+            .collect();
+        let full = build_project_graphics_render_layers(&project, 160, 96, 8.0, None).unwrap();
+        let range =
+            build_project_graphics_render_layers(&project, 160, 96, 8.0, Some((2.0, 2.125)))
+                .unwrap();
+        assert_eq!(
+            full.iter().map(|g| &g.layer.id).collect::<Vec<_>>(),
+            range.iter().map(|g| &g.layer.id).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "graphics-render")]
+    fn highlighted_caption_range_matches_full_animation_frames() {
+        let root = tempfile::tempdir().unwrap();
+        let mut project = sample_project();
+        project.render_settings.width = 160;
+        project.render_settings.height = 96;
+        project.render_settings.fps = 8.0;
+        project.timeline.duration_seconds = 2.0;
+        project.timeline.tracks.truncate(1);
+        let track = &mut project.timeline.tracks[0];
+        track.kind = TrackKind::Caption;
+        track.items = vec![TimelineItem {
+            id: "timed".into(),
+            kind: TimelineItemKind::Caption,
+            start_seconds: 0.0,
+            duration_seconds: 2.0,
+            source: TimelineSource::Text {
+                text: "hello world".into(),
+            },
+            label: "Caption".into(),
+            properties: BTreeMap::from([
+                ("visualTreatment".into(), json!("accent emphasis")),
+                ("motion".into(), json!("snap pop")),
+                ("safeZone".into(), json!("10% margins")),
+                ("avoid".into(), json!("opaque slabs")),
+                ("emphasizedWordIndices".into(), json!([0, 1])),
+                (
+                    "captionWordTimings".into(),
+                    json!([
+                        {"wordIndex":0,"startSeconds":0.0,"endSeconds":1.0},
+                        {"wordIndex":1,"startSeconds":1.0,"endSeconds":2.0}
+                    ]),
+                ),
+            ]),
+        }];
+        let full = build_project_graphics_render_layers(&project, 160, 96, 8.0, None).unwrap();
+        let full =
+            render_project_graphics_layers(&full, root.path(), root.path().join("full"), None)
+                .unwrap();
+        for (start, end) in [(0.0, 0.125), (1.0, 1.125), (1.875, 2.0), (0.5, 1.5)] {
+            let selected =
+                build_project_graphics_render_layers(&project, 160, 96, 8.0, Some((start, end)))
+                    .expect("ranged timed caption validates");
+            let selected = render_project_graphics_layers(
+                &selected,
+                root.path(),
+                root.path().join(format!("range-{start}")),
+                None,
+            )
+            .unwrap();
+            assert_eq!(selected[0].manifest.duration_seconds, end - start);
+            for index in 0..selected[0].manifest.frame_count {
+                let original_index = (start * 8.0) as u32 + index;
+                let a = image::open(
+                    full[0]
+                        .artifact_dir
+                        .join(format!("frames/frame-{original_index:06}.png")),
+                )
+                .unwrap()
+                .into_rgba8();
+                let b = image::open(
+                    selected[0]
+                        .artifact_dir
+                        .join(format!("frames/frame-{index:06}.png")),
+                )
+                .unwrap()
+                .into_rgba8();
+                assert_eq!(a.as_raw(), b.as_raw(), "range {start} frame {index}");
+            }
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let folder = root.path().join("capture-project");
+            crate::project::split::save_split_project(&folder, &project).unwrap();
+            let capture = render_prepared_preview_frame_to_split_project_folder(
+                &folder,
+                1.0,
+                "timed-caption-capture",
+                "2026-10-03T12:00:00Z",
+            )
+            .expect("public capture API accepts emphasized timings");
+            let expected = image::open(full[0].artifact_dir.join("frames/frame-000008.png"))
+                .unwrap()
+                .into_rgba8();
+            let actual = image::open(folder.join(capture.preview_frame))
+                .unwrap()
+                .into_rgba8();
+            assert_eq!(
+                expected.as_raw(),
+                actual.as_raw(),
+                "canonical capture preserves caption animation phase"
+            );
+        }
+    }
 
     #[test]
     fn normal_render_entry_registers_before_waiting_for_project_lease() {

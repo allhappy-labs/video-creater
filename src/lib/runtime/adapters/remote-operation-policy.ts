@@ -45,6 +45,7 @@ const longJobs = new Set([
 ]);
 
 export function remoteOperationClass(operation: string, input: BackendInput): RemoteOperationClass {
+  if (operation.startsWith("remote_build_temporal_")) return "read";
   if (operation.startsWith("cancel_")) return "cancellation";
   // Recovery authorizes a fresh durable attempt; it is a short write, never a status read.
   if (operation === "recover_render_attempt_in_split_project_folder") return "mutation";

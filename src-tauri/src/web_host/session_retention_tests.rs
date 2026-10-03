@@ -26,6 +26,7 @@ fn failed_issue_does_not_add_a_credential_to_memory() {
 fn failed_revocation_rotation_and_csrf_refresh_preserve_authorization() {
     let (_root, store) = fixture();
     let issued = store.issue("phone", Some("owner@test"), 100).unwrap();
+    let changes = store.authorization_changes();
     let original = std::fs::read(&store.path).unwrap();
     block_persistence(&store);
     assert_eq!(store.revoke(&issued.session_id), Err(SessionError::Io));
@@ -46,6 +47,8 @@ fn failed_revocation_rotation_and_csrf_refresh_preserve_authorization() {
     assert_eq!(store.revoke_all(), Err(SessionError::Io));
     assert!(store.authenticate(&issued.credential, 101).is_ok());
     assert_eq!(std::fs::read(&store.path).unwrap(), original);
+    assert!(!changes.has_changed().unwrap());
+    assert!(store.is_active(&issued.session_id, 101));
 }
 
 #[test]

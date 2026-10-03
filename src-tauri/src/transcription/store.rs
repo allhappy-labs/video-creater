@@ -1158,6 +1158,15 @@ impl TranscriptionModelStore {
                 ModelStoreError::Download(format!("failed to create download client: {source}"))
             })?;
         let provider = HuggingFaceHubProvider::new(client);
+        #[cfg(feature = "web-host")]
+        let provider = provider.with_cancellable_http_client(
+            reqwest::Client::builder()
+                .connect_timeout(DOWNLOAD_CONNECT_TIMEOUT)
+                .read_timeout(Duration::from_secs(10))
+                .timeout(DOWNLOAD_REQUEST_TIMEOUT)
+                .build()
+                .map_err(|error| ModelStoreError::Download(error.to_string()))?,
+        );
         provider.inspect_remote(source)?;
 
         self.download_with_provider(entry, source, &provider, token, observer, publisher)

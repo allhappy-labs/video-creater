@@ -266,3 +266,101 @@ fn every_builtin_shader_and_motion_template_has_animated_prepared_frames() {
         assert!(changes, "{id} must animate");
     }
 }
+
+#[test]
+fn shader_templates_fit_landscape_and_portrait_raster_budget() {
+    let root = tempfile::tempdir().unwrap();
+    for (width, height, expected) in [(3840, 2160, (1920, 1080)), (1080, 1920, (1080, 1920))] {
+        let mut project = template_project(true);
+        project.render_settings.width = width;
+        project.render_settings.height = height;
+        let layer = super::graphics_template::template_layer(
+            root.path(),
+            &project,
+            &project.timeline.tracks[0].items[0],
+            true,
+        )
+        .unwrap();
+        let super::graphics_template::TemplateLayer::Shader(layer) = layer else {
+            panic!("shader")
+        };
+        assert_eq!((layer.dimensions.width, layer.dimensions.height), expected);
+        crate::gpu_graphics::validation::validate_gpu_graphics_layer(&layer)
+            .expect("supported working raster");
+    }
+}
+
+#[test]
+#[cfg_attr(target_os = "macos", ignore = "requires AppKit-hosted GStreamer")]
+fn high_resolution_shader_projects_publish_valid_scaled_animation() {
+    crate::render_runtime::start_render_process_runtime().unwrap();
+    let root = tempfile::tempdir().unwrap();
+    for (width, height, expected) in [(3840, 2160, (1920, 1080)), (1080, 1920, (1080, 1920))] {
+        let mut project = template_project(true);
+        project.render_settings.width = width;
+        project.render_settings.height = height;
+        project.render_settings.fps = 2.0;
+        let prepared = prepare_project_for_render(root.path(), &project).unwrap();
+        let report = &prepared.reports[0];
+        let frames = root
+            .path()
+            .join(&report.intermediate)
+            .parent()
+            .unwrap()
+            .join("frames");
+        let first = image::open(frames.join("frame-000000.png"))
+            .unwrap()
+            .into_rgba8();
+        let last = image::open(frames.join("frame-000001.png"))
+            .unwrap()
+            .into_rgba8();
+        assert_eq!(first.dimensions(), expected);
+        assert_ne!(first.as_raw(), last.as_raw());
+        assert_eq!(
+            (
+                project.render_settings.width,
+                project.render_settings.height
+            ),
+            (width, height)
+        );
+        let plan = crate::render_pipeline::project_export::build_project_webm_render_plan(
+            root.path(),
+            &prepared.project,
+            "scaled-shader",
+            crate::edit::render_plan::RenderQualityProfile::FinalWebm,
+        )
+        .unwrap();
+        assert_eq!((plan.width, plan.height), (width, height));
+    }
+}
+
+#[test]
+fn shader_renderer_cancels_between_frames_and_removes_partial_artifacts() {
+    let root = tempfile::tempdir().unwrap();
+    let project = template_project(true);
+    let layer = super::graphics_template::template_layer(
+        root.path(),
+        &project,
+        &project.timeline.tracks[0].items[0],
+        true,
+    )
+    .unwrap();
+    let super::graphics_template::TemplateLayer::Shader(layer) = layer else {
+        panic!("shader")
+    };
+    let checks = std::cell::Cell::new(0);
+    let output = root.path().join("cancelled");
+    let result = crate::gpu_graphics::renderer::render_gpu_graphics_layer_cancellable(
+        &layer,
+        crate::gpu_graphics::renderer::GpuRenderOptions {
+            output_dir: output.clone(),
+        },
+        || {
+            checks.set(checks.get() + 1);
+            checks.get() >= 4
+        },
+    );
+    let errors = result.expect_err("GPU frame loop must observe cancellation");
+    assert!(errors.iter().any(|error| error.path == "cancelled"));
+    assert!(!output.exists(), "cancelled frame cache is removed");
+}

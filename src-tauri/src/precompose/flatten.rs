@@ -342,6 +342,22 @@ fn validate_group_track_overlaps(
     Ok(())
 }
 
+// Bound resident canvas storage independently of the timeline duration. A
+// single frame is the minimum unit; decoder/effect buffers are also per-frame.
+fn canvas_chunk_frames(width: u32, height: u32, frame_count: u32) -> PipelineResult<u32> {
+    let bytes = u64::from(width)
+        .checked_mul(u64::from(height))
+        .and_then(|n| n.checked_mul(4))
+        .filter(|n| *n > 0)
+        .ok_or_else(|| {
+            vec![flatten_error(
+                "precompose.flatten.dimensions",
+                "Flattened-composite dimensions are invalid.",
+            )]
+        })?;
+    Ok(((32 * 1024 * 1024 / bytes).clamp(1, 32) as u32).min(frame_count))
+}
+
 fn render_group(
     project_dir: &Path,
     project: &VideoProject,
@@ -360,7 +376,8 @@ fn render_group(
     })?;
     let duration = group.end_seconds - group.start_seconds;
     let frame_count = (duration * fps).ceil().max(1.0) as u32;
-    let dependencies = collect_dependencies(project_dir, project, group, transitions)?;
+    let dependencies =
+        collect_dependencies(project_dir, project, group, transitions, cancellation)?;
     let solids = transitions.solids(
         group.top_track_index,
         group.start_seconds,
@@ -390,7 +407,7 @@ fn render_group(
         pixel_contract: "rgba8-srgb-straight-v1".to_string(),
         blend_contract: "w3c-separable-linear-premultiplied-v1".to_string(),
         sampling_policy: "presentation-interval-hold-v1",
-        compositor_revision: "shared-frame-program-effects-v3",
+        compositor_revision: "shared-frame-program-effects-v4-chunked-clip-seed",
         compositor_backend: compositor_backend.to_string(),
         gpu_adapter: gpu_adapter.map(str::to_string),
         transition_contract: (!solids.is_empty()
@@ -431,46 +448,66 @@ fn render_group(
                     "Flattened-composite dimensions overflowed.",
                 )]
             })?;
-        let mut canvases = vec![vec![0_u8; pixel_count * 4]; frame_count as usize];
-        composite_group_layers(
-            &dependencies,
-            &solids,
-            DependencyRenderContext {
-                group,
-                fps,
-                fps_numerator,
-                fps_denominator,
-                width,
-                height,
-                canvases: &mut canvases,
-                compositor: &mut compositor,
-                cancellation,
-            },
-        )?;
+        let frame_bytes = pixel_count.checked_mul(4).ok_or_else(|| {
+            vec![flatten_error(
+                "precompose.flatten.dimensions",
+                "Flattened-composite RGBA dimensions overflowed.",
+            )]
+        })?;
+        let chunk_frames = canvas_chunk_frames(width, height, frame_count)?;
         let mut frame_rgba_sha256 = Vec::with_capacity(frame_count as usize);
         let mut frame_png_sha256 = Vec::with_capacity(frame_count as usize);
-        for (frame_index, canvas) in canvases.into_iter().enumerate() {
+        for first_frame in (0..frame_count).step_by(chunk_frames as usize) {
             ensure_not_cancelled(cancellation)?;
-            frame_rgba_sha256.push(format!("{:x}", Sha256::digest(&canvas)));
-            let frame_path = frames_dir.join(format!("frame-{frame_index:06}.png"));
-            image::RgbaImage::from_raw(width, height, canvas)
-                .ok_or_else(|| {
-                    vec![flatten_error(
-                        "precompose.flatten.frame",
-                        "Flattened RGBA frame dimensions are invalid.",
-                    )]
-                })?
-                .save(&frame_path)
-                .map_err(|error| {
-                    vec![flatten_error(
-                        "precompose.flatten.png",
-                        &format!("Flattened PNG could not be written: {error}"),
-                    )]
-                })?;
-            frame_png_sha256.push(
-                sha256_file(&frame_path)
-                    .map_err(|error| vec![flatten_io_error("frameHash", error)])?,
-            );
+            let count = chunk_frames.min(frame_count - first_frame);
+            let chunk = FlattenGroup {
+                start_seconds: group.start_seconds + f64::from(first_frame) / fps,
+                end_seconds: group
+                    .end_seconds
+                    .min(group.start_seconds + f64::from(first_frame + count) / fps),
+                top_track_index: group.top_track_index,
+                top_item_id: group.top_item_id.clone(),
+            };
+            let mut canvases = vec![vec![0_u8; frame_bytes]; count as usize];
+            composite_group_layers(
+                &dependencies,
+                &solids,
+                DependencyRenderContext {
+                    group: &chunk,
+                    fps,
+                    fps_numerator,
+                    fps_denominator,
+                    width,
+                    height,
+                    canvases: &mut canvases,
+                    compositor: &mut compositor,
+                    cancellation,
+                },
+            )?;
+            for (index, canvas) in canvases.into_iter().enumerate() {
+                ensure_not_cancelled(cancellation)?;
+                let frame_index = first_frame as usize + index;
+                frame_rgba_sha256.push(format!("{:x}", Sha256::digest(&canvas)));
+                let frame_path = frames_dir.join(format!("frame-{frame_index:06}.png"));
+                image::RgbaImage::from_raw(width, height, canvas)
+                    .ok_or_else(|| {
+                        vec![flatten_error(
+                            "precompose.flatten.frame",
+                            "Flattened RGBA frame dimensions are invalid.",
+                        )]
+                    })?
+                    .save(&frame_path)
+                    .map_err(|error| {
+                        vec![flatten_error(
+                            "precompose.flatten.png",
+                            &format!("Flattened PNG could not be written: {error}"),
+                        )]
+                    })?;
+                frame_png_sha256.push(
+                    sha256_file(&frame_path)
+                        .map_err(|error| vec![flatten_io_error("frameHash", error)])?,
+                );
+            }
         }
         let intermediate = staging.join("intermediate.mov");
         package_png_frames_as_mov(
@@ -613,6 +650,7 @@ pub(super) fn collect_dependencies<'a>(
     project: &'a VideoProject,
     group: &FlattenGroup,
     transitions: &FlattenTransitions,
+    cancellation: Option<&RenderCancellationToken>,
 ) -> PipelineResult<Vec<Dependency<'a>>> {
     let mut dependencies = Vec::new();
     for (track_index, track) in project.timeline.tracks.iter().enumerate() {
@@ -648,15 +686,10 @@ pub(super) fn collect_dependencies<'a>(
                 )]);
             }
             let source_path = project_dir.join(&media.relative_path);
-            let source_sha256 = format!(
-                "{:x}",
-                Sha256::digest(fs::read(&source_path).map_err(|error| {
-                    vec![flatten_error(
-                        "precompose.flatten.sourceRead",
-                        &error.to_string(),
-                    )]
-                })?)
-            );
+            let source_sha256 = super::cache::sha256_file_cancellable(&source_path, || {
+                cancellation.is_some_and(RenderCancellationToken::is_cancelled)
+            })
+            .map_err(|error| vec![flatten_io_error("sourceRead", error)])?;
             let source_in = numeric_property(&item.properties, "sourceIn").unwrap_or(0.0);
             let source_out = numeric_property(&item.properties, "sourceOut")
                 .unwrap_or(source_in + item.duration_seconds);
@@ -920,7 +953,7 @@ fn render_dependency_frames(
                     rgba,
                     width,
                     height,
-                    canvas_index as u32,
+                    (local_seconds * fps).round() as u32,
                     local_seconds,
                 )
                 .map_err(|error| {
@@ -1404,6 +1437,98 @@ mod tests {
     use super::*;
     use crate::frame_compositor::{composite_rgba8_srgb, CubeLut};
     use crate::project::fixtures::sample_project;
+
+    #[test]
+    #[cfg(feature = "ges-render")]
+    #[cfg_attr(target_os = "macos", ignore = "requires AppKit-hosted GStreamer")]
+    fn chunked_effect_frames_match_canonical_capture_across_boundaries() {
+        crate::render_runtime::start_render_process_runtime().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("source-frames");
+        fs::create_dir_all(&source).unwrap();
+        for index in 0..48 {
+            let rgba =
+                image::RgbaImage::from_pixel(64, 48, image::Rgba([40 + index, 70, 100, 255]));
+            rgba.save(source.join(format!("frame-{index:06}.png")))
+                .unwrap();
+        }
+        package_png_frames_as_mov(
+            &source,
+            48,
+            PngSequenceSpec {
+                width: 64,
+                height: 48,
+                fps_numerator: 8,
+                fps_denominator: 1,
+            },
+            &root.path().join("source.mov"),
+            Duration::from_secs(20),
+        )
+        .unwrap();
+        let mut project = sample_project();
+        project.render_settings.width = 64;
+        project.render_settings.height = 48;
+        project.render_settings.fps = 8.0;
+        project.timeline.tracks.truncate(1);
+        project.media.truncate(1);
+        project.media[0].relative_path = "source.mov".into();
+        project.media[0].duration_seconds = 6.0;
+        let item = &mut project.timeline.tracks[0].items[0];
+        item.start_seconds = 0.0;
+        item.duration_seconds = 6.0;
+        item.properties = BTreeMap::from([
+            ("sourceIn".into(), json!(0.0)),
+            ("sourceOut".into(), json!(6.0)),
+            (
+                "effects".into(),
+                json!([{"id":"grain", "effectType":"stylize.grain", "enabled":true,"params":{"amount":0.5,"size":1.0}}]),
+            ),
+            (
+                "keyframes".into(),
+                json!({"opacity":[{"atSeconds":0.0,"value":0.5},{"atSeconds":6.0,"value":1.0}]}),
+            ),
+        ]);
+        let group = plan_groups(&project, &FlattenTransitions::plan(&project))
+            .unwrap()
+            .remove(0);
+        let (report, _, _) = render_group(
+            root.path(),
+            &project,
+            &group,
+            &FlattenTransitions::plan(&project),
+            None,
+        )
+        .unwrap();
+        let frames = root
+            .path()
+            .join(report.intermediate)
+            .parent()
+            .unwrap()
+            .join("frames");
+        for index in [0, 24, 31, 32, 47] {
+            let full = image::open(frames.join(format!("frame-{index:06}.png")))
+                .unwrap()
+                .into_rgba8();
+            let capture = super::super::render_canonical_frame_rgba(
+                root.path(),
+                &project,
+                index as f64 / 8.0,
+                None,
+            )
+            .unwrap();
+            assert_eq!(full.as_raw(), &capture, "absolute sample frame {index}");
+        }
+    }
+
+    #[test]
+    fn long_effect_sequences_keep_canvas_memory_bounded() {
+        for (width, height) in [(1920, 1080), (3840, 2160), (16384, 16384)] {
+            let count = canvas_chunk_frames(width, height, 1800).unwrap();
+            let bytes = u64::from(width) * u64::from(height) * 4;
+            assert!(count >= 1);
+            assert!(u64::from(count) * bytes <= (32 * 1024 * 1024).max(bytes));
+        }
+    }
 
     #[test]
     fn all_palmier_blend_modes_route_through_canonical_precomposition() {

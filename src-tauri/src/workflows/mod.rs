@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod bundle_publication_tests;
 mod temporal_export_destination;
 pub mod temporal_reconcile;
 
@@ -98,8 +100,7 @@ use crate::project::model::{
 };
 use crate::project::mutation::acquire_split_project_mutation_lease;
 use crate::project::nle_export::{
-    export_project_timeline_to_nle_xml, nle_xml_export_artifact, write_nle_xml_export,
-    NleXmlExport, NleXmlFormat,
+    export_project_timeline_to_nle_xml, nle_xml_export_artifact, NleXmlExport, NleXmlFormat,
 };
 use crate::project::split::{
     apply_project_actions_to_split_project, load_split_project,
@@ -163,6 +164,7 @@ pub const VIDEO_CREATER_TEMPORAL_RUST_SDK_CRATES: &[&str] = &[
     "temporalio-macros",
     "temporalio-sdk",
     "temporalio-sdk-core",
+    "temporalio-workflow",
 ];
 pub const VIDEO_CREATER_TEMPORAL_REQUIRED_TOOLS: &[&str] = &["protoc", "temporal"];
 pub const VIDEO_CREATER_TEMPORAL_WORKFLOW_KINDS: &[TemporalWorkflowKind] = &[
@@ -3636,9 +3638,12 @@ pub fn temporal_export_nle_xml_write_artifact_activity_value(
     let _project_lease = acquire_split_project_mutation_lease(Path::new(&output.project_dir))
         .map_err(TemporalWorkflowInputError::SaveSplitProject)?;
     ensure_export_output_can_be_written(&output_absolute, output.overwrite)?;
-    remove_existing_export_output(&output_absolute)?;
-    let written_path = write_nle_xml_export(Path::new(&output.project_dir), &export)
-        .map_err(|error| TemporalWorkflowInputError::NleXmlExport(error.to_string()))?;
+    let written_path = crate::project::nle_export::write_nle_xml_export_with_overwrite(
+        Path::new(&output.project_dir),
+        &export,
+        output.overwrite,
+    )
+    .map_err(|error| TemporalWorkflowInputError::NleXmlExport(error.to_string()))?;
 
     serde_json::to_value(TemporalExportNleXmlWriteArtifactActivityOutput {
         project_id: output.project_id,
@@ -4387,29 +4392,97 @@ fn write_project_bundle_package(
     fs::create_dir_all(&exports_dir)
         .map_err(|error| TemporalWorkflowInputError::SaveSplitProject(error.to_string()))?;
     ensure_export_output_can_be_written(output_path, overwrite)?;
-    remove_existing_export_output(output_path)?;
-
-    let staging_name = format!(".{}-project-bundle.tmp", safe_workflow_segment(job_id));
-    let staging = exports_dir.join(staging_name);
-    if staging.exists() {
-        fs::remove_dir_all(&staging)
-            .map_err(|error| TemporalWorkflowInputError::SaveSplitProject(error.to_string()))?;
-    }
-    fs::create_dir_all(&staging)
+    let project = load_split_project(project_dir)
+        .map_err(|error| TemporalWorkflowInputError::LoadSplitProject(error.to_string()))?;
+    // Only recorded project-package exports are omitted. Authored folders and loose
+    // media/export artifacts retain their contents, including folders ending in .palmier.
+    let excluded_bundles: Vec<_> = project
+        .export_artifacts
+        .iter()
+        .filter(|artifact| artifact.kind == ProjectExportArtifactKind::ProjectBundle)
+        .filter_map(|artifact| {
+            let mut components = Path::new(&artifact.path).components();
+            if components.next() != Some(std::path::Component::Normal(OsStr::new("exports")))
+                || components.clone().count() == 0
+                || !components.all(|component| matches!(component, std::path::Component::Normal(_)))
+            {
+                return None;
+            }
+            let path = project_dir.join(&artifact.path);
+            path.is_dir().then_some(path)
+        })
+        .collect();
+    // Prepare the complete replacement before altering an existing user export.
+    let staging = tempfile::Builder::new()
+        .prefix(&format!(
+            ".{}-project-bundle-",
+            safe_workflow_segment(job_id)
+        ))
+        .tempdir_in(&exports_dir)
         .map_err(|error| TemporalWorkflowInputError::SaveSplitProject(error.to_string()))?;
-
-    let copy_result = copy_project_bundle_contents(project_dir, &staging, &staging, output_path);
-    if let Err(error) = copy_result {
-        let _ = fs::remove_dir_all(&staging);
-        return Err(error);
-    }
-    if let Err(error) = write_palmier_compatibility_package_files(project_dir, &staging) {
-        let _ = fs::remove_dir_all(&staging);
-        return Err(error);
-    }
-
-    fs::rename(&staging, output_path)
+    copy_project_bundle_contents(
+        project_dir,
+        staging.path(),
+        staging.path(),
+        output_path,
+        &excluded_bundles,
+    )?;
+    write_palmier_compatibility_package_files(project_dir, staging.path())?;
+    publish_project_bundle(staging.path(), output_path, overwrite)
         .map_err(|error| TemporalWorkflowInputError::SaveSplitProject(error.to_string()))
+}
+
+fn publish_project_bundle(staging: &Path, output: &Path, overwrite: bool) -> std::io::Result<()> {
+    // Exchanging directories publishes a replacement atomically; the old bundle is then
+    // owned by the staging guard and removed only after successful publication.
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let source = std::ffi::CString::new(staging.as_os_str().as_bytes())?;
+        let destination = std::ffi::CString::new(output.as_os_str().as_bytes())?;
+        let replacing = std::fs::symlink_metadata(output).is_ok();
+        let result = unsafe {
+            #[cfg(target_os = "linux")]
+            {
+                libc::renameat2(
+                    libc::AT_FDCWD,
+                    source.as_ptr(),
+                    libc::AT_FDCWD,
+                    destination.as_ptr(),
+                    if replacing && overwrite {
+                        libc::RENAME_EXCHANGE
+                    } else {
+                        libc::RENAME_NOREPLACE
+                    },
+                )
+            }
+            #[cfg(target_os = "macos")]
+            {
+                libc::renamex_np(
+                    source.as_ptr(),
+                    destination.as_ptr(),
+                    if replacing && overwrite {
+                        libc::RENAME_SWAP
+                    } else {
+                        libc::RENAME_EXCL
+                    },
+                )
+            }
+        };
+        if result == 0 {
+            Ok(())
+        } else {
+            Err(std::io::Error::last_os_error())
+        }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    {
+        let _ = (staging, output, overwrite);
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "atomic project bundle publication is unavailable on this platform",
+        ))
+    }
 }
 
 fn write_palmier_compatibility_package_files(
@@ -4638,6 +4711,7 @@ fn copy_project_bundle_contents(
     destination_dir: &Path,
     staging_dir: &Path,
     final_output_dir: &Path,
+    excluded_bundles: &[PathBuf],
 ) -> Result<(), TemporalWorkflowInputError> {
     for entry in fs::read_dir(source_dir)
         .map_err(|error| TemporalWorkflowInputError::SaveSplitProject(error.to_string()))?
@@ -4647,6 +4721,9 @@ fn copy_project_bundle_contents(
         let source_path = entry.path();
         if path_is_or_is_inside(&source_path, staging_dir)
             || path_is_or_is_inside(&source_path, final_output_dir)
+            || excluded_bundles
+                .iter()
+                .any(|path| path_is_or_is_inside(&source_path, path))
         {
             continue;
         }
@@ -4663,6 +4740,7 @@ fn copy_project_bundle_contents(
                 &destination_path,
                 staging_dir,
                 final_output_dir,
+                excluded_bundles,
             )?;
         } else if file_type.is_file() {
             fs::copy(&source_path, &destination_path)
@@ -8235,7 +8313,7 @@ pub fn temporal_export_project_bundle_start_request(
     request
 }
 
-fn export_media_activity_types(profile: ExportProfile) -> &'static [&'static str] {
+pub(crate) fn export_media_activity_types(profile: ExportProfile) -> &'static [&'static str] {
     match profile {
         ExportProfile::PalmierProject => &["WriteExportArtifact", "AttachExportReport"],
         ExportProfile::Webm
@@ -8916,7 +8994,8 @@ pub fn temporal_worker_registration_plan() -> TemporalWorkerRegistrationPlan {
 }
 
 #[cfg(feature = "temporal-worker")]
-pub fn temporal_worker_options() -> temporalio_sdk::WorkerOptions {
+pub fn temporal_worker_options(
+) -> Result<temporalio_sdk::WorkerOptions, temporalio_sdk::WorkflowRegistrationError> {
     temporal_worker_runtime::worker_options()
 }
 
@@ -9942,16 +10021,16 @@ mod temporal_worker_runtime {
         }
     }
 
-    pub fn worker_options() -> WorkerOptions {
-        WorkerOptions::new(VIDEO_CREATER_TEMPORAL_TASK_QUEUE)
-            .register_workflow::<VideoCreaterGenerateMediaWorkflow>()
-            .register_workflow::<VideoCreaterRenderDraftWorkflow>()
-            .register_workflow::<VideoCreaterTranscribeMediaWorkflow>()
-            .register_workflow::<VideoCreaterCodexEditWorkflow>()
-            .register_workflow::<VideoCreaterExportMediaWorkflow>()
-            .register_workflow::<VideoCreaterExportNleXmlWorkflow>()
+    pub fn worker_options() -> Result<WorkerOptions, temporalio_sdk::WorkflowRegistrationError> {
+        Ok(WorkerOptions::new(VIDEO_CREATER_TEMPORAL_TASK_QUEUE)
+            .register_workflow::<VideoCreaterGenerateMediaWorkflow>()?
+            .register_workflow::<VideoCreaterRenderDraftWorkflow>()?
+            .register_workflow::<VideoCreaterTranscribeMediaWorkflow>()?
+            .register_workflow::<VideoCreaterCodexEditWorkflow>()?
+            .register_workflow::<VideoCreaterExportMediaWorkflow>()?
+            .register_workflow::<VideoCreaterExportNleXmlWorkflow>()?
             .register_activities(VideoCreaterTemporalActivities)
-            .build()
+            .build())
     }
 
     fn activity_registered(activity_type: &'static str, input: Value) -> Value {

@@ -1,3 +1,4 @@
+mod publication;
 use super::model::{
     GeneratedAsset, MediaAsset, MediaKind, ProjectExportArtifact, ProjectExportArtifactKind,
     Timeline, TimelineItem, TimelineItemKind, TimelineSource, TimelineTrack, TrackKind,
@@ -528,24 +529,22 @@ pub fn write_nle_xml_export(
     project_dir: &Path,
     export: &NleXmlExport,
 ) -> Result<PathBuf, NleXmlExportError> {
-    let exports_dir = project_dir.join("exports");
-    std::fs::create_dir_all(&exports_dir).map_err(|error| NleXmlExportError::Io {
-        path: exports_dir.display().to_string(),
-        message: error.to_string(),
-    })?;
+    write_nle_xml_export_with_overwrite(project_dir, export, true)
+}
 
-    let export_path = exports_dir.join(&export.filename);
-    let temporary_path = exports_dir.join(format!(".{}.tmp", export.filename));
-    std::fs::write(&temporary_path, &export.xml).map_err(|error| NleXmlExportError::Io {
-        path: temporary_path.display().to_string(),
+pub(crate) fn write_nle_xml_export_with_overwrite(
+    project_dir: &Path,
+    export: &NleXmlExport,
+    overwrite: bool,
+) -> Result<PathBuf, NleXmlExportError> {
+    publication::write(project_dir, export, overwrite).map_err(|error| NleXmlExportError::Io {
+        path: project_dir
+            .join("exports")
+            .join(&export.filename)
+            .display()
+            .to_string(),
         message: error.to_string(),
-    })?;
-    std::fs::rename(&temporary_path, &export_path).map_err(|error| NleXmlExportError::Io {
-        path: export_path.display().to_string(),
-        message: error.to_string(),
-    })?;
-
-    Ok(export_path)
+    })
 }
 
 impl NleXmlFormat {

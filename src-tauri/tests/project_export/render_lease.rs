@@ -5,6 +5,8 @@
 //! issued while a render encodes never waits for the encode, and the render keeps rendering the
 //! snapshot it read at its start, so an edit that lands meanwhile cannot change its output.
 
+#![cfg(feature = "ges-render")]
+
 use super::export_job_summary;
 use super::named_exports::fixture_project_of_length;
 use std::path::{Path, PathBuf};

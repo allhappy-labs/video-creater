@@ -28,6 +28,7 @@ pub enum LeaseError {
 struct State {
     leases: HashMap<String, EditorLease>,
     disconnected_until: HashMap<String, u64>,
+    connections: HashMap<String, usize>,
     audit: Vec<LeaseAuditRecord>,
 }
 
@@ -90,7 +91,9 @@ impl LeaseManager {
                 return Err(LeaseError::Held);
             }
             lease.expires_at = now.saturating_add(self.duration_seconds);
-            return Ok(lease.clone());
+            let result = lease.clone();
+            state.disconnected_until.remove(session_id);
+            return Ok(result);
         }
         Ok(insert_lease(
             &mut state,
@@ -212,8 +215,22 @@ impl LeaseManager {
         Ok(())
     }
 
+    pub fn connected(&self, session_id: &str) {
+        let mut state = self.lock();
+        *state.connections.entry(session_id.to_owned()).or_default() += 1;
+        state.disconnected_until.remove(session_id);
+    }
+
     pub fn disconnected(&self, session_id: &str, now: u64) {
-        self.lock().disconnected_until.insert(
+        let mut state = self.lock();
+        if let Some(connections) = state.connections.get_mut(session_id) {
+            *connections = connections.saturating_sub(1);
+            if *connections > 0 {
+                return;
+            }
+            state.connections.remove(session_id);
+        }
+        state.disconnected_until.insert(
             session_id.to_owned(),
             now.saturating_add(self.disconnect_grace_seconds),
         );
@@ -268,6 +285,7 @@ fn insert_lease(
         expires_at: now.saturating_add(duration),
     };
     state.leases.insert(project_id.to_owned(), lease.clone());
+    state.disconnected_until.remove(session_id);
     state.audit.push(LeaseAuditRecord {
         project_id: project_id.to_owned(),
         session_id: session_id.to_owned(),

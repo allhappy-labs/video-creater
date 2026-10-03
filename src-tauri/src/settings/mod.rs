@@ -1,19 +1,19 @@
 #[cfg(feature = "app-runtime")]
 pub mod acceptance;
-#[cfg(feature = "app-runtime")]
+#[cfg(any(feature = "app-runtime", feature = "web-host"))]
 pub mod agent;
-#[cfg(feature = "app-runtime")]
+#[cfg(any(feature = "app-runtime", feature = "web-host"))]
 pub mod fixtures;
-#[cfg(feature = "app-runtime")]
+#[cfg(any(feature = "app-runtime", feature = "web-host"))]
 pub mod health;
-#[cfg(feature = "app-runtime")]
+#[cfg(any(feature = "app-runtime", feature = "web-host"))]
 pub mod operations;
 pub mod preferences;
-#[cfg(feature = "app-runtime")]
+#[cfg(any(feature = "app-runtime", feature = "web-host"))]
 pub mod process_probe;
-#[cfg(feature = "app-runtime")]
+#[cfg(any(feature = "app-runtime", feature = "web-host"))]
 pub mod providers;
-#[cfg(feature = "app-runtime")]
+#[cfg(any(feature = "app-runtime", feature = "web-host"))]
 pub mod render_system;
 pub mod skills;
 pub mod storage;

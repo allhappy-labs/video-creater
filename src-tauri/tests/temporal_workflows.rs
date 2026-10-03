@@ -4911,6 +4911,7 @@ fn temporal_worker_manifest_lists_registered_workflows_and_activities() {
             "temporalio-macros",
             "temporalio-sdk",
             "temporalio-sdk-core",
+            "temporalio-workflow",
         ]
     );
     assert_eq!(manifest.required_tools, vec!["protoc", "temporal"]);
@@ -4974,9 +4975,14 @@ fn temporal_worker_registration_plan_maps_manifest_to_worker_registrations() {
 #[cfg(feature = "temporal-worker")]
 #[test]
 fn temporal_worker_options_register_manifest_workflow_and_activity_names() {
-    let options = video_creater_lib::workflows::temporal_worker_options();
+    let options = video_creater_lib::workflows::temporal_worker_options()
+        .expect("register canonical workflow types");
     let manifest = temporal_worker_manifest();
-    let mut workflow_names: Vec<_> = options.workflows().workflow_types().collect();
+    let definitions = options.workflows();
+    let mut workflow_names: Vec<_> = definitions
+        .workflow_definitions()
+        .map(|definition| definition.workflow_type.as_str())
+        .collect();
     workflow_names.sort_unstable();
     let mut manifest_workflows: Vec<_> =
         manifest.workflow_types.iter().map(String::as_str).collect();
@@ -5297,10 +5303,11 @@ fn cargo_manifest_declares_temporal_worker_scaffold() {
         "temporalio-macros",
         "temporalio-sdk",
         "temporalio-sdk-core",
+        "temporalio-workflow",
     ] {
         assert!(
-            cargo_manifest.contains(&format!("{dependency} = {{ version = \"0.4.0\"")),
-            "Cargo.toml should pin optional dependency {dependency} to Temporal Rust SDK 0.4.0"
+            cargo_manifest.contains(&format!("{dependency} = {{ version = \"0.5.0\"")),
+            "Cargo.toml should pin optional dependency {dependency} to Temporal Rust SDK 0.5.0"
         );
         assert!(
             cargo_manifest.contains(&format!("\"dep:{dependency}\"")),

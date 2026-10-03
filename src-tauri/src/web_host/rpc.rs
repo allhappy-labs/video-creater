@@ -267,6 +267,9 @@ impl Drop for SessionPermit {
 }
 
 pub trait RpcDispatcher: Send + Sync {
+    /// Attach the host event stream to shared long-running service operations.
+    fn set_event_sink(&self, _events: Arc<dyn crate::app_service::events::EventSink>) {}
+
     fn dispatch(&self, request: &RpcEnvelope) -> Result<Value, String>;
 
     /// Only the host creation operation uses this server-reserved commit witness.

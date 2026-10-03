@@ -132,6 +132,8 @@ pub struct HuggingFaceHubProvider {
     #[allow(dead_code)]
     api_base_url: String,
     resolve_base_url: String,
+    #[cfg(feature = "web-host")]
+    cancellable_http_client: Option<reqwest::Client>,
 }
 
 impl HuggingFaceHubProvider {
@@ -152,7 +154,17 @@ impl HuggingFaceHubProvider {
             client,
             api_base_url: api_base_url.into().trim_end_matches('/').to_string(),
             resolve_base_url: resolve_base_url.into().trim_end_matches('/').to_string(),
+            #[cfg(feature = "web-host")]
+            cancellable_http_client: None,
         }
+    }
+
+    /// Opt into cancellation-aware host transfers while retaining custom blocking-client behavior
+    /// for existing callers of `with_base_urls`.
+    #[cfg(feature = "web-host")]
+    pub fn with_cancellable_http_client(mut self, client: reqwest::Client) -> Self {
+        self.cancellable_http_client = Some(client);
+        self
     }
 
     pub fn resolve_url(
@@ -188,6 +200,26 @@ impl ModelArtifactProvider for HuggingFaceHubProvider {
             return Err(ModelAcquisitionError::UnsupportedProvider(source.provider));
         }
         let url = self.hugging_face_revision_api_url(source);
+        #[cfg(feature = "web-host")]
+        if let Some(client) = &self.cancellable_http_client {
+            let runtime = host_download_runtime()?;
+            let value = runtime.block_on(async {
+                let response = client
+                    .get(&url)
+                    .timeout(std::time::Duration::from_secs(30))
+                    .send()
+                    .await
+                    .and_then(reqwest::Response::error_for_status)
+                    .map_err(|error| ModelAcquisitionError::Inspect(error.to_string()))?;
+                response
+                    .json::<serde_json::Value>()
+                    .await
+                    .map_err(|error| ModelAcquisitionError::Inspect(error.to_string()))
+            })?;
+            let remote = parse_hugging_face_model_response(&value)?;
+            validate_remote_required_files(source, &remote)?;
+            return Ok(remote);
+        }
         let value = self
             .client
             .get(&url)
@@ -243,18 +275,30 @@ impl ModelArtifactProvider for HuggingFaceHubProvider {
 
             if uses_http {
                 let url = self.resolve_url(source, &relative_path.remote_path)?;
-                download_http_file_to_part(
-                    &self.client,
-                    &url,
-                    &part_path,
-                    HttpDownloadProgress {
-                        observer: progress,
-                        downloaded_files: index as u32,
-                        total_files,
-                        downloaded_bytes: &mut downloaded_bytes,
-                        total_bytes: &mut total_bytes,
-                    },
-                )?;
+                let download_progress = HttpDownloadProgress {
+                    observer: progress,
+                    downloaded_files: index as u32,
+                    total_files,
+                    downloaded_bytes: &mut downloaded_bytes,
+                    total_bytes: &mut total_bytes,
+                };
+                #[cfg(feature = "web-host")]
+                match &self.cancellable_http_client {
+                    Some(client) => download_cancellable_http_file_to_part(
+                        client,
+                        &url,
+                        &part_path,
+                        download_progress,
+                    )?,
+                    None => download_http_file_to_part(
+                        &self.client,
+                        &url,
+                        &part_path,
+                        download_progress,
+                    )?,
+                }
+                #[cfg(not(feature = "web-host"))]
+                download_http_file_to_part(&self.client, &url, &part_path, download_progress)?;
             } else {
                 let source_path = local_source_file_path(
                     &self.resolve_base_url,
@@ -516,6 +560,83 @@ struct HttpDownloadProgress<'a> {
     total_files: u32,
     downloaded_bytes: &'a mut u64,
     total_bytes: &'a mut u64,
+}
+
+#[cfg(feature = "web-host")]
+fn host_download_runtime() -> Result<tokio::runtime::Runtime, ModelAcquisitionError> {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .map_err(|error| ModelAcquisitionError::Download(error.to_string()))
+}
+
+#[cfg(feature = "web-host")]
+fn download_cancellable_http_file_to_part(
+    client: &reqwest::Client,
+    url: &str,
+    part_path: &Path,
+    progress: HttpDownloadProgress<'_>,
+) -> Result<(), ModelAcquisitionError> {
+    let runtime = host_download_runtime()?;
+    let HttpDownloadProgress {
+        observer,
+        downloaded_files,
+        total_files,
+        downloaded_bytes,
+        total_bytes,
+    } = progress;
+    let result = runtime.block_on(async {
+        let transfer = async {
+            if observer.is_cancelled()? {
+                return Err(ModelAcquisitionError::Cancelled);
+            }
+            let mut part_file = create_part_file(part_path)?;
+            let mut response = client
+                .get(url)
+                .send()
+                .await
+                .and_then(reqwest::Response::error_for_status)
+                .map_err(|error| ModelAcquisitionError::Download(error.to_string()))?;
+            *total_bytes = total_bytes.saturating_add(response.content_length().unwrap_or(0));
+            observer.progress_updated(ModelDownloadProgressSnapshot {
+                downloaded_files,
+                total_files,
+                downloaded_bytes: *downloaded_bytes,
+                total_bytes: *total_bytes,
+            })?;
+            while let Some(chunk) = response
+                .chunk()
+                .await
+                .map_err(|error| ModelAcquisitionError::Download(error.to_string()))?
+            {
+                if observer.is_cancelled()? {
+                    return Err(ModelAcquisitionError::Cancelled);
+                }
+                part_file.write_all(&chunk).map_err(acquisition_io_error)?;
+                *downloaded_bytes = downloaded_bytes.saturating_add(chunk.len() as u64);
+                observer.progress_updated(ModelDownloadProgressSnapshot {
+                    downloaded_files,
+                    total_files,
+                    downloaded_bytes: *downloaded_bytes,
+                    total_bytes: *total_bytes,
+                })?;
+            }
+            part_file.flush().map_err(acquisition_io_error)
+        };
+        let cancellation = async {
+            loop {
+                if observer.is_cancelled()? {
+                    return Err(ModelAcquisitionError::Cancelled);
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+        };
+        tokio::select! { result = transfer => result, result = cancellation => result }
+    });
+    if result.is_err() {
+        remove_part_file(part_path);
+    }
+    result
 }
 
 fn download_http_file_to_part(
@@ -819,6 +940,15 @@ mod tests {
             "http://127.0.0.1/unused",
             format!("http://{address}"),
         );
+        #[cfg(feature = "web-host")]
+        let provider = provider.with_cancellable_http_client(
+            reqwest::Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(5))
+                .read_timeout(Duration::from_secs(2))
+                .build()
+                .unwrap(),
+        );
         let target = tempfile::tempdir().expect("target");
         let progress = RecordingProgress {
             snapshots: Mutex::new(Vec::new()),
@@ -842,5 +972,108 @@ mod tests {
             std::fs::read(&artifact.files[0].absolute_path).expect("downloaded file"),
             body
         );
+    }
+    #[cfg(feature = "web-host")]
+    #[test]
+    fn cancelled_stalled_http_transfer_finishes_before_the_server_resumes() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        use std::sync::{mpsc, Arc};
+        struct CancelProgress {
+            cancelled: AtomicBool,
+            first_chunk: AtomicBool,
+            ready: Mutex<Option<mpsc::Sender<()>>>,
+        }
+        impl ModelDownloadProgress for CancelProgress {
+            fn is_cancelled(&self) -> Result<bool, ModelAcquisitionError> {
+                let cancelled = self.cancelled.load(Ordering::Acquire);
+                if self.first_chunk.load(Ordering::Acquire) {
+                    if let Some(ready) = self.ready.lock().unwrap().take() {
+                        ready.send(()).unwrap();
+                    }
+                }
+                Ok(cancelled)
+            }
+            fn file_completed(&self, _: u32) -> Result<(), ModelAcquisitionError> {
+                Ok(())
+            }
+            fn progress_updated(
+                &self,
+                snapshot: ModelDownloadProgressSnapshot,
+            ) -> Result<(), ModelAcquisitionError> {
+                if snapshot.downloaded_bytes > 0 {
+                    self.first_chunk.store(true, Ordering::Release);
+                }
+                Ok(())
+            }
+        }
+        let listener = TcpListener::bind("127.0.0.1:0").expect("local fixture listener");
+        let address = listener.local_addr().unwrap();
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (stop_tx, stop_rx) = mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0];
+            while !request.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\nConnection: close\r\n\r\na")
+                .unwrap();
+            stream.flush().unwrap();
+            let _ = stop_rx.recv_timeout(Duration::from_secs(5));
+        });
+        let client = reqwest::blocking::Client::builder()
+            .no_proxy()
+            .timeout(Duration::from_secs(4))
+            .build()
+            .unwrap();
+        let mut provider = HuggingFaceHubProvider::new(client).with_cancellable_http_client(
+            reqwest::Client::builder()
+                .no_proxy()
+                .read_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(4))
+                .build()
+                .unwrap(),
+        );
+        provider.resolve_base_url = format!("http://{address}");
+        let source = ModelArtifactSource {
+            provider: ModelArtifactProviderKind::HuggingFaceHub,
+            repo_id: "fixture/model".into(),
+            revision: "fixture".into(),
+            path_prefix: None,
+            include_files: vec!["model.bin".into()],
+            license: None,
+        };
+        let directory = tempfile::tempdir().unwrap();
+        let target = directory.path().to_path_buf();
+        let cancelled = Arc::new(CancelProgress {
+            cancelled: AtomicBool::new(false),
+            first_chunk: AtomicBool::new(false),
+            ready: Mutex::new(Some(ready_tx)),
+        });
+        let worker_cancelled = cancelled.clone();
+        let (result_tx, result_rx) = mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            result_tx
+                .send(provider.download(&source, &target, worker_cancelled.as_ref()))
+                .unwrap();
+        });
+        ready_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+        cancelled.cancelled.store(true, Ordering::Release);
+        let result = result_rx.recv_timeout(Duration::from_secs(1));
+        stop_tx.send(()).unwrap();
+        server.join().unwrap();
+        worker.join().unwrap();
+        assert!(
+            matches!(result, Ok(Err(ModelAcquisitionError::Cancelled))),
+            "cancelled transfer waited for stalled network I/O"
+        );
+        assert!(!directory.path().join("model.bin").exists());
+        assert!(!directory.path().join("model.bin.part").exists());
     }
 }

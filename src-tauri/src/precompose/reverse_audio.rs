@@ -12,7 +12,7 @@
 //! on the reversed intermediate like on any other audio clip.
 
 use super::audio_retime::audio_transition_handles;
-use super::cache::{fingerprint, sha256_file};
+use super::cache::fingerprint;
 use super::{ensure_not_cancelled, project_relative_path, seconds_to_micros, PrecomposeReport};
 use crate::project::model::{
     MediaAsset, MediaKind, TimelineItemKind, TimelineSource, VideoProject,
@@ -141,8 +141,10 @@ fn prepare_task(
     let source_path = project_dir.join(&media.relative_path);
     let io_error =
         |what: &str, error: std::io::Error| fail(&format!("Reversed audio {what} failed: {error}"));
-    let source_sha256 =
-        sha256_file(&source_path).map_err(|error| io_error("source read", error))?;
+    let source_sha256 = super::cache::sha256_file_cancellable(&source_path, || {
+        cancellation.is_some_and(RenderCancellationToken::is_cancelled)
+    })
+    .map_err(|error| io_error("source read", error))?;
     let fingerprint = fingerprint(&Fingerprint {
         schema_version: CACHE_VERSION,
         source_sha256: &source_sha256,

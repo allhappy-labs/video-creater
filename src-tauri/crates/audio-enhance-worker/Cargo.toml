@@ -12,20 +12,22 @@ name = "video-creater-audio-enhance"
 path = "src/main.rs"
 
 [dependencies]
-# libDF (MIT OR Apache-2.0) pinned to an immutable commit. Crates.io only publishes
+# libDF (MIT OR Apache-2.0) vendored from immutable commit d375b2d8309e0935d165700c91da9de862a99c31.
+# SOURCE.json records the ndarray/symbol-field compatibility patches. Crates.io only publishes
 # deep_filter 0.2.5 (2022) without the tract runtime; this revision embeds the
 # DeepFilterNet3 ONNX model (models/DeepFilterNet3_onnx.tar.gz,
 # sha256 c94d91f70911001c946e0fabb4aa9adc37045f45a03b56008cb0c8244cb63616) through
 # the `default-model` feature, so the helper never downloads model weights.
-deep_filter = { git = "https://github.com/Rikorose/DeepFilterNet", rev = "d375b2d8309e0935d165700c91da9de862a99c31", default-features = false, features = ["tract", "default-model"] }
+deep_filter = { path = "../../vendor/deepfilternet/libDF", default-features = false, features = ["tract", "default-model"] }
 hound = "3.5.1"
-ndarray = "0.15"
-# libDF declares tract ^0.21.4, but later 0.21.x releases renamed APIs it uses. Pin the
-# versions from libDF's own Cargo.lock at the revision above (MIT OR Apache-2.0).
-tract-core = "=0.21.4"
-tract-hir = "=0.21.4"
-tract-onnx = "=0.21.4"
-tract-pulse = "=0.21.4"
+ndarray = "0.16"
+# libDF permits tract ^0.21.4. Keep its full runtime on the reviewed 0.21.17
+# release, which includes the NNEF tensor-loader fix for RUSTSEC-2026-0217.
+tract-core = "=0.21.17"
+tract-hir = "=0.21.17"
+tract-onnx = "=0.21.17"
+tract-pulse = "=0.21.17"
 
 [dev-dependencies]
 tempfile = "3.14.0"
+tract-nnef = "=0.21.17"

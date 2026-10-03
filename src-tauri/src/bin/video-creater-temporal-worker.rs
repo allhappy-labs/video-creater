@@ -42,7 +42,7 @@ async fn run() -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let worker_options = temporal_worker_options();
+    let worker_options = temporal_worker_options()?;
     let runtime = temporalio_sdk_core::CoreRuntime::new_assume_tokio(
         temporalio_sdk_core::RuntimeOptions::builder()
             .telemetry_options(temporalio_common::telemetry::TelemetryOptions::builder().build())

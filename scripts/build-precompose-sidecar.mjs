@@ -3,6 +3,7 @@
 import { copyFileSync, mkdirSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
+import { linuxNativeBuildEnvironment } from "./linux-native-build-env.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const release = process.argv.includes("--release");
@@ -53,7 +54,7 @@ const provenance = spawnSync("node", ["scripts/check-precompose-vendor-provenanc
   stdio: "inherit",
 });
 if (provenance.status !== 0) process.exit(provenance.status ?? 1);
-const buildEnv = target.includes("linux") ? linuxThorvgBuildEnv(process.env) : process.env;
+const buildEnv = target.includes("linux") ? linuxNativeBuildEnvironment(process.env) : process.env;
 const build = spawnSync("cargo", cargoArgs, { cwd: repoRoot, stdio: "inherit", env: buildEnv });
 if (build.status !== 0) process.exit(build.status ?? 1);
 mkdirSync(dirname(bundled), { recursive: true });
@@ -77,17 +78,3 @@ if (target === "aarch64-apple-darwin") {
   if (verification.status !== 0) process.exit(verification.status ?? 1);
 }
 console.log(`prepared ${basename(bundled)}`);
-
-// The vendored ThorVG build defaults to clang++, and its bindgen step needs compiler builtin
-// headers such as stdbool.h. Linux hosts commonly provide libclang without clang's resource
-// headers, so fall back to the platform C++ compiler and GCC's builtin include directory.
-function linuxThorvgBuildEnv(env) {
-  const next = { ...env };
-  if (!next.CXX) next.CXX = "c++";
-  if (!next.BINDGEN_EXTRA_CLANG_ARGS) {
-    const gccInclude = spawnSync("cc", ["-print-file-name=include"], { encoding: "utf8" });
-    const includeDir = gccInclude.status === 0 ? gccInclude.stdout.trim() : "";
-    if (includeDir.startsWith("/")) next.BINDGEN_EXTRA_CLANG_ARGS = `-isystem ${includeDir}`;
-  }
-  return next;
-}

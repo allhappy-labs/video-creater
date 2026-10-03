@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "crate": "tract-data",
+  "version": "0.21.17",
+  "sourceUrl": "https://static.crates.io/crates/tract-data/tract-data-0.21.17.crate",
+  "sourceSha256": "64f6512fb371742c6e5205754a3ae0e93c97fcbe094fe566c2ac2f285ae5f04b",
+  "upstream": "https://github.com/sonos/tract/tree/v0.21.17",
+  "license": "MIT OR Apache-2.0",
+  "modifications": [
+    "Cargo.toml: half =2.4.1 becomes >=2.4,<3.0; libm =0.2.11 becomes >=0.2.11,<0.3"
+  ],
+  "files": {
+    ".cargo_vcs_info.json": "2ccd7a15b037b057ec768ca791106822a74761b645fd6edb82dfd9834d259287",
+    "Cargo.lock": "01528c6846353a86882ae3a8f79d57329fd462a5501d3d3fc0712ac94b439b28",
+    "Cargo.toml": "20484d7adf77454e263b27b1a1c7617e1b24d41ce3d1f7038f7711cd65a7675c",
+    "Cargo.toml.orig": "10e1525f294a50fae293cdb51adf2b682d85c3c727979cd16e575e40272ae7aa",
+    "LICENSE": "f7ef673bf046d823dcd775bdd0768432bd8855f81d0e5e1290a0a48c42e2dca3",
+    "LICENSE-APACHE": "a60eea817514531668d7e00765731449fe14d059d3249e0bc93b36de45f759f2",
+    "LICENSE-MIT": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+    "benches/stack_tensors.rs": "f73494372d1d1589282b8a34f625fbb8be37e295af084199ff5d30fa67e3637d",
+    "benches/tensor_from_datum.rs": "c8cf56a8923fd8607656268af1c09aa2b1d4314cd8a191757424393d3b9d6736",
+    "src/blob.rs": "74abe5ce8477076a9090f3e5f3342748adce404dc77c7151d1a2caae0dae1c9a",
+    "src/datum.rs": "c9cb0e1222096a9d24c88487e32105234e5d9e98949e3c3a7046621cb3a50add",
+    "src/dim/assertion.rs": "6eecb024abf92fb24c5e10cd5dc0b5457b61184ae542ae72ca77bbaae83a20aa",
+    "src/dim/mod.rs": "a1527187e0332a4b52d5bf5c5b0b3712f0415de909d2bc229cd8257ea5b25125",
+    "src/dim/parse.rs": "9cd0c32a27f210f09b7e0afdd945864979321e06426e7c36ceec7ecff723b350",
+    "src/dim/resolve.rs": "9d7bd8a5cfa82e0d37df8bf4ab7817b9eeb669c1dfb33d594d0ae80dbb668f5f",
+    "src/dim/sym.rs": "f02422d734e8b31b147a9f4e3ce2fdc4403ff73701fc0a2621686d91accf7941",
+    "src/dim/tree.rs": "51b619998e8ed0a9bab311873f70532f23c3522dd8b5cf1ea247f74dea2691c2",
+    "src/lib.rs": "5e0043f92542f295824f44e13e05b5eb8fe7752bfa4054561383fa3c4c4a7389",
+    "src/macros.rs": "643efb41677e38c950f0165f3eb5e3fbaa5c3ac9bab320d1dfde1b965e958da4",
+    "src/opaque.rs": "f7d26bd8b2a0fcd1eadee542ee970ec27b6fad62766ed2f5a36e91732c1971db",
+    "src/scatter.rs": "7054439a0f2dea627c7cd88e9a5009f577394b1b37e2d1a0c824aa1469af81df",
+    "src/tensor/litteral.rs": "20801b3f93b18bbc6b38b8a479ae96d6388bcacadc018f95504e8f1e0eff99d9",
+    "src/tensor/view.rs": "4aef952eb47221df9ae267b89d7094bff1897b7b1ab4814466d50480cc829639",
+    "src/tensor.rs": "4216f1b0c5562dff2b6a44b42147c48344a13de67dc0d78aca1e9ae1870a35b0"
+  }
+}

@@ -27,6 +27,17 @@ pub fn render_gpu_graphics_layer(
     layer: &GpuGraphicsLayer,
     options: GpuRenderOptions,
 ) -> GpuGraphicsResult<GraphicsArtifactManifest> {
+    render_gpu_graphics_layer_cancellable(layer, options, || false)
+}
+
+pub fn render_gpu_graphics_layer_cancellable(
+    layer: &GpuGraphicsLayer,
+    options: GpuRenderOptions,
+    is_cancelled: impl Fn() -> bool,
+) -> GpuGraphicsResult<GraphicsArtifactManifest> {
+    if is_cancelled() {
+        return Err(cancelled_gpu_errors(&options.output_dir));
+    }
     validate_gpu_graphics_layer(layer)?;
     std::fs::create_dir_all(&options.output_dir).map_err(|error| {
         vec![artifact_error(
@@ -60,6 +71,9 @@ pub fn render_gpu_graphics_layer(
     let frame_count = frame_count(layer);
     let renderer = BlockingGpuRenderer::new(layer)?;
     for frame_index in 0..frame_count {
+        if is_cancelled() {
+            return Err(cancelled_gpu_errors(&options.output_dir));
+        }
         let rgba = renderer.render_frame(layer, frame_index, frame_count)?;
         let frame_path = frames_dir.join(frame_file_name(frame_index));
         write_rgba_png(
@@ -81,6 +95,9 @@ pub fn render_gpu_graphics_layer(
         }
     }
 
+    if is_cancelled() {
+        return Err(cancelled_gpu_errors(&options.output_dir));
+    }
     let manifest = GraphicsArtifactManifest {
         schema_version: 1,
         artifact_id: format!("{}.preview", layer.id),
@@ -123,6 +140,26 @@ pub fn render_gpu_graphics_layer(
     )?;
 
     Ok(manifest)
+}
+
+fn cancelled_gpu_errors(output_dir: &Path) -> Vec<GpuGraphicsError> {
+    let mut errors = vec![GpuGraphicsError::new(
+        GpuGraphicsErrorCode::GpuGraphicsRenderFailed,
+        "cancelled",
+        "GPU graphics rendering was cancelled.",
+        "Start a new render attempt to retry.",
+    )];
+    if let Err(error) = std::fs::remove_dir_all(output_dir) {
+        if error.kind() != std::io::ErrorKind::NotFound {
+            errors.push(artifact_error(
+                "cancelled.cleanup",
+                "Partial GPU graphics could not be removed.",
+                "Remove the partial graphics directory before retrying.",
+                error,
+            ));
+        }
+    }
+    errors
 }
 
 #[repr(C)]

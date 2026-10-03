@@ -2,14 +2,16 @@
 use crate::render_pipeline::avfoundation_backend::{
     AvFoundationCapabilities, AVFOUNDATION_EXPORT_PROTOCOL, AVFOUNDATION_EXPORT_PROTOCOL_VERSION,
 };
+#[cfg(any(feature = "ges-render", test))]
 use crate::render_pipeline::plugin_policy::{
     evaluate_gstreamer_factory, GstFactoryInfo, PluginPolicyVerdict,
 };
 #[cfg(feature = "ges-render")]
 use crate::render_runtime::render_runtime_environment;
+use crate::render_runtime::RenderRuntimeError;
+#[cfg(feature = "ges-render")]
 use crate::render_runtime::{
-    render_runtime_readiness, RenderRuntimeEnvironment, RenderRuntimeError, RenderRuntimeReadiness,
-    RenderRuntimeSource,
+    render_runtime_readiness, RenderRuntimeEnvironment, RenderRuntimeReadiness, RenderRuntimeSource,
 };
 use crate::settings::health::{SettingsComponentHealth, SettingsHealthState};
 use chrono::{SecondsFormat, Utc};
@@ -18,6 +20,7 @@ use gstreamer as gst;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::env;
+#[cfg(feature = "ges-render")]
 use std::fs;
 use std::io::Write;
 #[cfg(target_os = "macos")]
@@ -34,6 +37,7 @@ use video_creater_compatibility_protocol::{
 const RENDER_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 const RENDER_HEALTH_TARGET_ID: &str = "render-system";
 const RENDER_HEALTH_PROBE_ARG: &str = "--render-health-probe";
+#[cfg(feature = "ges-render")]
 const RENDER_HEALTH_PROBE_EXECUTABLE_ENV: &str = "VIDEO_CREATER_RENDER_HEALTH_PROBE_EXECUTABLE";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -70,6 +74,7 @@ enum RenderHealthProbePayload {
     },
 }
 
+#[cfg(any(feature = "ges-render", test))]
 #[derive(Debug, Deserialize)]
 struct RenderHealthProbeErrorPayload {
     code: String,
@@ -98,6 +103,7 @@ impl RenderProbeFailure {
     }
 }
 
+#[cfg(feature = "ges-render")]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RenderRuntimeManifest {
@@ -109,6 +115,7 @@ struct RenderRuntimeManifest {
     factories: Vec<RenderRuntimeFactory>,
 }
 
+#[cfg(feature = "ges-render")]
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RenderRuntimeFactory {
@@ -118,6 +125,7 @@ struct RenderRuntimeFactory {
     license: Option<String>,
 }
 
+#[cfg(feature = "ges-render")]
 impl From<RenderRuntimeFactory> for GstFactoryInfo {
     fn from(factory: RenderRuntimeFactory) -> Self {
         GstFactoryInfo {
@@ -240,14 +248,14 @@ fn composition_health_items(
     };
     #[cfg(not(feature = "ges-render"))]
     {
-        return composition_items_from_startup_failure(
+        composition_items_from_startup_failure(
             RenderRuntimeError::new(
                 "render.runtime.feature_disabled",
                 "The required GStreamer/GES render runtime is disabled in this build.",
                 "Rebuild with the ges-render feature.",
             ),
             checked_at,
-        );
+        )
     }
 
     #[cfg(feature = "ges-render")]
@@ -289,6 +297,7 @@ fn composition_health_items(
     }
 }
 
+#[cfg(any(feature = "ges-render", test))]
 fn composition_items_while_pending(
     helper_items: (SettingsComponentHealth, SettingsComponentHealth),
     checked_at: &str,
@@ -320,6 +329,7 @@ fn composition_items_while_pending(
     (gstreamer, plugin_policy)
 }
 
+#[cfg(any(feature = "ges-render", test))]
 fn checking_component(
     id: &str,
     label: &str,
@@ -344,6 +354,7 @@ fn checking_component(
     }
 }
 
+#[cfg(any(feature = "ges-render", test))]
 fn settings_health_state_name(state: &SettingsHealthState) -> &'static str {
     match state {
         SettingsHealthState::Ready => "ready",
@@ -358,6 +369,7 @@ fn settings_health_state_name(state: &SettingsHealthState) -> &'static str {
     }
 }
 
+#[cfg(any(feature = "ges-render", test))]
 fn render_health_probe_executable(
     current_executable: Option<PathBuf>,
     development_override: Option<std::ffi::OsString>,
@@ -399,6 +411,7 @@ fn composition_items_from_startup_failure(
     (gstreamer, policy)
 }
 
+#[cfg(any(feature = "ges-render", test))]
 fn composition_items_from_probe_failure(
     code: &str,
     message: &str,
@@ -427,6 +440,7 @@ fn composition_items_from_probe_failure(
     )
 }
 
+#[cfg(any(feature = "ges-render", test))]
 fn parse_render_health_probe_output(
     success: bool,
     stdout: &[u8],
@@ -683,6 +697,7 @@ fn probe_plugin_policy() -> Result<(String, BTreeMap<String, String>), RenderPro
     ))
 }
 
+#[cfg(any(feature = "ges-render", test))]
 fn plugin_policy_component_from_factories(
     factories: Vec<GstFactoryInfo>,
     manifest_hash: &str,
@@ -975,6 +990,7 @@ fn probe_compatibility_decoder() -> Result<(String, BTreeMap<String, String>), R
     }
 }
 
+#[cfg(feature = "ges-render")]
 fn read_runtime_manifest(
     environment: &RenderRuntimeEnvironment,
 ) -> Result<RenderRuntimeManifest, RenderProbeFailure> {
@@ -994,6 +1010,7 @@ fn read_runtime_manifest(
     })
 }
 
+#[cfg(feature = "ges-render")]
 fn runtime_provenance(environment: &RenderRuntimeEnvironment) -> BTreeMap<String, String> {
     BTreeMap::from([
         (
@@ -1013,6 +1030,7 @@ fn runtime_provenance(environment: &RenderRuntimeEnvironment) -> BTreeMap<String
     ])
 }
 
+#[cfg(feature = "ges-render")]
 fn render_runtime_source_name(source: RenderRuntimeSource) -> &'static str {
     match source {
         RenderRuntimeSource::Bundled => "bundled",

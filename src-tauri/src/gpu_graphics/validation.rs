@@ -72,14 +72,15 @@ fn validate_required_text(layer: &GpuGraphicsLayer, errors: &mut Vec<GpuGraphics
 fn validate_timing_and_dimensions(layer: &GpuGraphicsLayer, errors: &mut Vec<GpuGraphicsError>) {
     if layer.dimensions.width == 0
         || layer.dimensions.height == 0
-        || layer.dimensions.width > MAX_WIDTH
-        || layer.dimensions.height > MAX_HEIGHT
+        || layer.dimensions.width.max(layer.dimensions.height) > MAX_WIDTH
+        || u64::from(layer.dimensions.width) * u64::from(layer.dimensions.height)
+            > u64::from(MAX_WIDTH) * u64::from(MAX_HEIGHT)
     {
         errors.push(GpuGraphicsError::new(
             GpuGraphicsErrorCode::GpuGraphicsInvalidDimensions,
             "dimensions",
             "GPU layer dimensions are outside the v1 budget.",
-            "Use dimensions no larger than 1920x1080 for GPU-generated layers.",
+            "Use at most 2,073,600 pixels with a longest edge of 1920 pixels for GPU-generated layers.",
         ));
     }
 

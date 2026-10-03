@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "runtime": "Linux DeepFilterNet3 ONNX enhancement helper",
+  "deepFilterNet": {
+    "repository": "https://github.com/Rikorose/DeepFilterNet",
+    "revision": "d375b2d8309e0935d165700c91da9de862a99c31",
+    "crate": "libDF",
+    "license": "MIT OR Apache-2.0",
+    "modifications": [
+      "libDF/Cargo.toml ndarray dependency updated to ^0.16",
+      "libDF/src/tract.rs three symbol_table field references renamed to symbols",
+      "embedded model unchanged"
+    ]
+  },
+  "model": {
+    "path": "models/DeepFilterNet3_onnx.tar.gz",
+    "sha256": "c94d91f70911001c946e0fabb4aa9adc37045f45a03b56008cb0c8244cb63616",
+    "embedded": true
+  },
+  "tract": {
+    "repository": "https://github.com/sonos/tract",
+    "version": "0.21.17",
+    "license": "MIT OR Apache-2.0",
+    "securityFix": "RUSTSEC-2026-0217",
+    "modifications": [
+      "vendored tract-data and tract-linalg Cargo.toml relax half version constraint; tract-data relaxes libm constraint and tract-linalg relaxes build-only time constraint; implementation unchanged"
+    ]
+  },
+  "vendoredSources": [
+    "deepfilternet-SOURCE.json",
+    "tract-data-SOURCE.json",
+    "tract-linalg-SOURCE.json"
+  ]
+}

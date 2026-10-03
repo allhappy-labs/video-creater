@@ -268,11 +268,48 @@ fn validate_frame_hash(
 }
 
 pub fn sha256_file(path: &Path) -> std::io::Result<String> {
-    let mut file = File::open(path)?;
+    sha256_file_cancellable(path, || false)
+}
+
+pub fn sha256_file_cancellable(
+    path: &Path,
+    is_cancelled: impl Fn() -> bool,
+) -> std::io::Result<String> {
+    sha256_file_with_prefix_cancellable(path, &[], is_cancelled)
+}
+
+pub fn sha256_file_with_prefix_cancellable(
+    path: &Path,
+    prefix: &[u8],
+    is_cancelled: impl Fn() -> bool,
+) -> std::io::Result<String> {
+    sha256_reader_with_prefix_cancellable(File::open(path)?, prefix, is_cancelled)
+}
+
+#[cfg(test)]
+fn sha256_reader_cancellable(
+    reader: impl Read,
+    is_cancelled: impl Fn() -> bool,
+) -> std::io::Result<String> {
+    sha256_reader_with_prefix_cancellable(reader, &[], is_cancelled)
+}
+
+fn sha256_reader_with_prefix_cancellable(
+    mut reader: impl Read,
+    prefix: &[u8],
+    is_cancelled: impl Fn() -> bool,
+) -> std::io::Result<String> {
     let mut digest = Sha256::new();
+    digest.update(prefix);
     let mut buffer = [0_u8; 64 * 1024];
     loop {
-        let read = file.read(&mut buffer)?;
+        if is_cancelled() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "Media hashing was cancelled.",
+            ));
+        }
+        let read = reader.read(&mut buffer)?;
         if read == 0 {
             break;
         }
@@ -300,7 +337,9 @@ impl CacheLock {
                 Ok(mut file) => {
                     writeln!(file, "{}", std::process::id())
                         .map_err(|error| cache_io_error("lockWrite", error))?;
-                    return Ok(Self { path });
+                    let lock = Self { path };
+                    remove_orphan_staging(project_dir, fingerprint)?;
+                    return Ok(lock);
                 }
                 Err(error)
                     if error.kind() == std::io::ErrorKind::AlreadyExists
@@ -316,6 +355,49 @@ impl CacheLock {
             }
         }
     }
+}
+
+// The acquired hash lock excludes other writers for this entry. Recover only
+// recognized staging directories for this exact hash, preserving published
+// entries, other hashes, unexpected names, and symlinks.
+fn remove_orphan_staging(project_dir: &Path, fingerprint: &str) -> PipelineResult<()> {
+    if fingerprint.len() != 64 || !fingerprint.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Ok(());
+    }
+    let entry = cache_entry_dir(project_dir, fingerprint);
+    let parent = entry.parent().expect("cache hash has parent");
+    let entries = match fs::read_dir(parent) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(cache_io_error("stagingRead", error)),
+    };
+    let prefixes = [
+        format!(".{fingerprint}.staging-"),
+        format!("{fingerprint}.staging-"),
+    ];
+    for candidate in entries {
+        let candidate = candidate.map_err(|error| cache_io_error("stagingRead", error))?;
+        if !candidate
+            .file_type()
+            .map_err(|error| cache_io_error("stagingType", error))?
+            .is_dir()
+        {
+            continue;
+        }
+        let name = candidate.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let recognized = prefixes.iter().any(|prefix| {
+            name.strip_prefix(prefix)
+                .is_some_and(|suffix| uuid::Uuid::parse_str(suffix).is_ok())
+        });
+        if recognized {
+            fs::remove_dir_all(candidate.path())
+                .map_err(|error| cache_io_error("stagingRemove", error))?;
+        }
+    }
+    Ok(())
 }
 
 fn lock_is_abandoned(path: &Path) -> bool {
@@ -478,6 +560,85 @@ mod tests {
         )
         .expect("cache manifest");
         directory
+    }
+
+    #[test]
+    fn acquired_lock_recovers_only_its_exact_fingerprint_orphan_staging() {
+        let root = tempfile::tempdir().unwrap();
+        let key = "ab".repeat(32);
+        let parent = cache_entry_dir(root.path(), &key)
+            .parent()
+            .unwrap()
+            .to_path_buf();
+        fs::create_dir_all(&parent).unwrap();
+        let orphan = parent.join(format!(
+            ".{key}.staging-00000000-0000-4000-8000-000000000001"
+        ));
+        let template_orphan = parent.join(format!(
+            "{key}.staging-00000000-0000-4000-8000-000000000002"
+        ));
+        let other = parent.join(format!(
+            ".{}{}.staging-00000000-0000-4000-8000-000000000003",
+            "ab",
+            "cd".repeat(31)
+        ));
+        let unrelated = parent.join(format!(".{key}.staging-user-notes"));
+        let published = cache_entry_dir(root.path(), &key);
+        for dir in [&orphan, &template_orphan, &other, &unrelated, &published] {
+            fs::create_dir_all(dir).unwrap();
+            fs::write(dir.join("preserve.bin"), b"contents").unwrap();
+        }
+        #[cfg(unix)]
+        let outside = {
+            let outside = root.path().join("outside");
+            fs::create_dir_all(&outside).unwrap();
+            fs::write(outside.join("preserve.bin"), b"external").unwrap();
+            std::os::unix::fs::symlink(
+                &outside,
+                parent.join(format!(
+                    ".{key}.staging-00000000-0000-4000-8000-000000000004"
+                )),
+            )
+            .unwrap();
+            outside
+        };
+        let _guard = CacheLock::acquire(root.path(), &key, Duration::from_secs(1)).unwrap();
+        assert!(!orphan.exists());
+        assert!(!template_orphan.exists());
+        for dir in [&other, &unrelated, &published] {
+            assert!(dir.join("preserve.bin").exists());
+        }
+        #[cfg(unix)]
+        assert!(outside.join("preserve.bin").exists());
+    }
+
+    #[test]
+    fn streamed_hash_observes_cancellation_between_read_chunks() {
+        let bytes = vec![42_u8; 4 * 64 * 1024];
+        let checks = std::cell::Cell::new(0);
+        let result = sha256_reader_cancellable(std::io::Cursor::new(&bytes), || {
+            checks.set(checks.get() + 1);
+            checks.get() >= 3
+        });
+        assert_eq!(
+            result
+                .expect_err("hashing must stop before reading the entire media")
+                .kind(),
+            std::io::ErrorKind::Interrupted
+        );
+        assert_eq!(
+            sha256_reader_cancellable(std::io::Cursor::new(&bytes), || false).unwrap(),
+            format!("{:x}", Sha256::digest(&bytes))
+        );
+        let prefix = b"compatibility-h264-pcm-v2";
+        assert_eq!(
+            sha256_reader_with_prefix_cancellable(std::io::Cursor::new(&bytes), prefix, || false)
+                .unwrap(),
+            format!(
+                "{:x}",
+                Sha256::digest([prefix.as_slice(), bytes.as_slice()].concat())
+            )
+        );
     }
 
     #[test]

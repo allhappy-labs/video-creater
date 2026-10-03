@@ -1,4 +1,7 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 const CONTROLLER_OWNED_DIRTY_PATHS = Object.freeze([
   ".superpowers/sdd/progress.md",
@@ -59,6 +62,40 @@ export function assertReleaseSourceStable(before, after) {
   if (JSON.stringify(before.taskOwnedDirtyPaths) !== JSON.stringify(after.taskOwnedDirtyPaths)) {
     throw new Error("release source dirty state changed during packaging");
   }
+}
+
+function artifactHash(path) {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+function inputSnapshot(inputPaths) {
+  const visit = (path) => statSync(path).isDirectory()
+    ? readdirSync(path).sort().flatMap((name) => visit(join(path, name)))
+    : [{ path, sha256: artifactHash(path) }];
+  return inputPaths.map((path) => resolve(path)).sort().flatMap(visit);
+}
+
+export function writeArtifactSourceEvidence({ artifactPath, source, inputPaths = [] }) {
+  if (!/^[0-9a-f]{40}$/.test(source.commit) || source.taskOwnedDirtyPaths?.length) {
+    throw new Error("artifact source evidence requires committed clean source");
+  }
+  const evidence = { schemaVersion: 1, source, sha256: artifactHash(artifactPath), inputs: inputSnapshot(inputPaths) };
+  writeFileSync(`${artifactPath}.source.json`, `${JSON.stringify(evidence, null, 2)}\n`);
+  return evidence;
+}
+
+export function verifyArtifactSourceEvidence({ artifactPath, source, inputPaths = [] }) {
+  const path = `${artifactPath}.source.json`;
+  if (!existsSync(path)) throw new Error(`artifact source evidence is missing: ${path}; rebuild from committed source`);
+  const evidence = JSON.parse(readFileSync(path, "utf8"));
+  if (evidence.schemaVersion !== 1 || evidence.source?.commit !== source.commit || evidence.source?.taskOwnedDirtyPaths?.length) {
+    throw new Error(`artifact source commit does not match clean current source: ${artifactPath}`);
+  }
+  if (evidence.sha256 !== artifactHash(artifactPath)) throw new Error(`artifact hash differs from build source evidence: ${artifactPath}`);
+  if (JSON.stringify(evidence.inputs) !== JSON.stringify(inputSnapshot(inputPaths))) {
+    throw new Error(`package payload hashes or inputs differ from build source evidence: ${artifactPath}`);
+  }
+  return evidence;
 }
 
 function statusPath(line) {

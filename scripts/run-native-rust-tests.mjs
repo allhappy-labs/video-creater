@@ -260,6 +260,8 @@ export async function runNativeRustTests({ reportPath = defaultReportPath } = {}
       "src-tauri/Cargo.toml",
       "--workspace",
       "--all-targets",
+      "--features",
+      "web-host",
       "--",
       "--test-threads=1",
     ],

@@ -243,7 +243,10 @@ pub(super) fn prepare_reversed_video(
     }
     let playback_rate_micros = (speed * 1_000_000.0).round() as u32;
     let source_path = project_dir.join(&media.relative_path);
-    let source_sha256 = sha256_file(&source_path).map_err(|error| {
+    let source_sha256 = super::cache::sha256_file_cancellable(&source_path, || {
+        cancellation.is_some_and(RenderCancellationToken::is_cancelled)
+    })
+    .map_err(|error| {
         vec![precompose_item_error(
             task,
             &format!("Reversed clip source could not be read: {error}"),

@@ -24,7 +24,7 @@
     "test:watch": "vitest",
     "test:gstreamer-runtime-policy": "node --test scripts/gstreamer-runtime-policy.test.ts",
     "test:gstreamer-release-policy": "node --test scripts/gstreamer-release-policy.test.ts",
-    "test:source-quality": "node --test scripts/source-quality-policy.test.ts scripts/check-tooling-source.test.ts scripts/prepare-fluidaudio-checkout.test.ts scripts/release-source-evidence.test.ts scripts/runtime-boundary-policy.test.ts scripts/development-entrypoint-policy.test.ts scripts/settings-packaged-acceptance.test.ts scripts/browser-visual-release.test.ts scripts/zero-debt-gate.test.ts scripts/refresh-browser-visual-baseline-manifest.test.ts scripts/editor-source-policy.test.ts scripts/knip-temporary-block.test.ts scripts/linux-desktop-smoke-selectors.test.ts scripts/linux-desktop-smoke-denoise.test.ts scripts/nle-xml-validation-sources.test.ts scripts/linux-desktop-smoke-steps.test.ts scripts/linux-desktop-smoke-retain.test.ts scripts/linux-desktop-smoke-tools.test.ts scripts/linux-desktop-smoke-agent.test.ts scripts/linux-desktop-smoke-export-tasks.test.ts scripts/linux-desktop-smoke-processes.test.ts scripts/linux-desktop-smoke-temporal.test.ts scripts/remote-operation-inventory-policy.test.ts scripts/tauri-service-adapter-policy.test.ts",
+    "test:source-quality": "node --test scripts/source-quality-policy.test.ts scripts/check-tooling-source.test.ts scripts/prepare-fluidaudio-checkout.test.ts scripts/release-source-evidence.test.ts scripts/runtime-boundary-policy.test.ts scripts/development-entrypoint-policy.test.ts scripts/settings-packaged-acceptance.test.ts scripts/browser-visual-release.test.ts scripts/zero-debt-gate.test.ts scripts/refresh-browser-visual-baseline-manifest.test.ts scripts/editor-source-policy.test.ts scripts/knip-temporary-block.test.ts scripts/linux-desktop-smoke-selectors.test.ts scripts/linux-desktop-smoke-denoise.test.ts scripts/nle-xml-validation-sources.test.ts scripts/linux-desktop-smoke-steps.test.ts scripts/linux-desktop-smoke-retain.test.ts scripts/linux-desktop-smoke-tools.test.ts scripts/linux-desktop-smoke-agent.test.ts scripts/linux-desktop-smoke-export-tasks.test.ts scripts/linux-desktop-smoke-processes.test.ts scripts/linux-desktop-smoke-temporal.test.ts scripts/remote-operation-inventory-policy.test.ts scripts/tauri-service-adapter-policy.test.ts scripts/release-packaging-regressions.test.ts scripts/audio-enhance-dependency-policy.test.ts scripts/braces-depth-security.test.ts scripts/dependency-security.test.ts scripts/rust-dependency-security.test.ts",
     "test:remote-operation-inventory": "node --test scripts/remote-operation-inventory-policy.test.ts",
     "test:browser": "node --test scripts/playwright-cli.test.ts && playwright test",
     "test:remote-host": "pnpm build && playwright test --config playwright.remote.config.ts",
@@ -105,8 +105,8 @@
     "render:template": "cargo run --manifest-path src-tauri/Cargo.toml --bin video-creater-render-template --",
     "check:temporal-worker": "cargo check --manifest-path src-tauri/Cargo.toml --bin video-creater-temporal-worker",
     "lint": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
-    "rust:fmt": "cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check",
-    "rust:clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets -- -D warnings && cargo clippy --manifest-path src-tauri/Cargo.toml --no-default-features --features mcp-server --bin video-creater-mcp-server -- -D warnings && cargo clippy --manifest-path src-tauri/Cargo.toml --no-default-features --features app-runtime,custom-protocol,coreml-inspect,ges-render,gpu-render,graphics-render --bin video-creater -- -D warnings",
+    "rust:fmt": "cargo fmt --manifest-path src-tauri/Cargo.toml -p video-creater -p video-creater-precompose-protocol -p video-creater-precompose-worker -p video-creater-compatibility-protocol -p video-creater-compatibility-decoder -p video-creater-provider-e2e-harness -p video-creater-audio-enhance -p video-creater-semantic-encoder -p video-creater-speech-worker -- --check",
+    "rust:clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets --features web-host -- -D warnings && cargo clippy --manifest-path src-tauri/Cargo.toml --no-default-features --features mcp-server --bin video-creater-mcp-server -- -D warnings && cargo clippy --manifest-path src-tauri/Cargo.toml --no-default-features --features app-runtime,custom-protocol,coreml-inspect,ges-render,gpu-render,graphics-render --bin video-creater -- -D warnings",
     "rust:test": "cargo test --manifest-path src-tauri/Cargo.toml -- --test-threads=1",
     "rust:test:native": "node scripts/run-native-rust-tests.mjs",
     "test:native-rust-policy": "node --test scripts/native-rust-test-policy.test.ts",
@@ -115,11 +115,13 @@
     "verify:native:fast": "node scripts/run-native-verification.mjs --lane fast",
     "verify:native:release": "node scripts/run-native-verification.mjs --lane release",
     "test:verification-policy": "node --test scripts/cargo-cache-policy.test.ts scripts/native-verification-policy.test.ts scripts/native-rust-test-policy.test.ts scripts/zero-debt-gate.test.ts",
-    "verify:release": "pnpm verify:frontend && pnpm test:gstreamer-release-policy && pnpm test:release-runtime-policy && pnpm check:release-runtime-policy && pnpm test:verification-policy && pnpm verify:native:release",
+    "verify:release": "pnpm check:dependency-security && pnpm check:rust-security && pnpm verify:frontend && pnpm test:gstreamer-release-policy && pnpm test:release-runtime-policy && pnpm check:release-runtime-policy && pnpm test:verification-policy && pnpm verify:native:release",
     "verify:zero-debt": "pnpm verify:release",
     "verify": "pnpm verify:release",
     "test:linux-release-policy": "node --test scripts/linux-release-policy.test.ts",
-    "smoke:linux-desktop": "node scripts/linux-desktop-smoke.mjs"
+    "smoke:linux-desktop": "node scripts/linux-desktop-smoke.mjs",
+    "check:dependency-security": "node scripts/dependency-security.mjs",
+    "check:rust-security": "node scripts/rust-dependency-security.mjs"
   },
   "dependencies": {
     "@radix-ui/react-context-menu": "^2.3.7",
@@ -160,6 +162,6 @@
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
-    "vitest": "^3.2.6"
+    "vitest": "^4.1.11"
   }
 }

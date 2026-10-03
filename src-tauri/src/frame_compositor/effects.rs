@@ -959,10 +959,25 @@ fn map_rgb(source: &[u8], mut map: impl FnMut([f64; 3]) -> [f64; 3]) -> Vec<u8> 
     output
 }
 
+fn map_separable_rgb(source: &[u8], mut map: impl FnMut(f64) -> f64) -> Vec<u8> {
+    // A separable curve has only 256 possible input values per 8-bit channel.
+    // Compute expensive transfer functions once per value, independent of
+    // canvas size, while retaining exactly the existing quantization.
+    let lookup: [u8; 256] =
+        std::array::from_fn(|value| clamp_u8(map(value as f64 / 255.0) * 255.0));
+    let mut output = source.to_vec();
+    for pixel in output.chunks_exact_mut(4) {
+        for channel in &mut pixel[..3] {
+            *channel = lookup[usize::from(*channel)];
+        }
+    }
+    output
+}
+
 fn exposure(source: &[u8], ev: f64) -> Vec<u8> {
     let multiplier = 2_f64.powf(ev);
-    map_rgb(source, |rgb| {
-        rgb.map(|channel| linear_to_srgb_f64(srgb_to_linear_f64(channel) * multiplier))
+    map_separable_rgb(source, |channel| {
+        linear_to_srgb_f64(srgb_to_linear_f64(channel) * multiplier)
     })
 }
 
@@ -1456,6 +1471,27 @@ mod tests {
         vec![
             20, 40, 60, 255, 80, 100, 120, 255, 140, 160, 180, 192, 220, 240, 250, 128,
         ]
+    }
+
+    #[test]
+    fn separable_channel_curves_bound_expensive_evaluations_and_preserve_pixels() {
+        let source = (0..4096)
+            .flat_map(|index| [index as u8, 64, 192, (index % 255) as u8])
+            .collect::<Vec<_>>();
+        let calls = std::cell::Cell::new(0);
+        let multiplier = 2_f64.powf(0.5);
+        let map = |value: f64| linear_to_srgb_f64(srgb_to_linear_f64(value) * multiplier);
+        let fast = map_separable_rgb(&source, |value| {
+            calls.set(calls.get() + 1);
+            map(value)
+        });
+        let reference = map_rgb(&source, |rgb| rgb.map(map));
+        assert_eq!(fast, reference);
+        assert_eq!(
+            calls.get(),
+            256,
+            "8-bit input has only 256 possible channel values"
+        );
     }
 
     #[test]

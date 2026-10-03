@@ -14,6 +14,7 @@ import {
   validateCargoTargetPath,
 } from "./cargo-cache-policy.mjs";
 import { evaluateExactRustTest, parseFocusedArgs } from "./focused-development.mjs";
+import { linuxNativeBuildEnvironment } from "./linux-native-build-env.mjs";
 import { performanceEnvironment, writePerformanceReport } from "./performance-metrics.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -53,7 +54,9 @@ const packagedFeatures =
   "app-runtime,custom-protocol,coreml-inspect,ges-render,gpu-render,graphics-render";
 
 export function buildVerificationPlan({ lane, filters }) {
-  const fmt = ["cargo", "fmt", ...manifest, "--all", "--", "--check"];
+  // --all also rewrites third-party path dependencies; format only owned packages.
+  const packages = ["video-creater", "video-creater-precompose-protocol", "video-creater-precompose-worker", "video-creater-compatibility-protocol", "video-creater-compatibility-decoder", "video-creater-provider-e2e-harness", "video-creater-audio-enhance", "video-creater-semantic-encoder", "video-creater-speech-worker"];
+  const fmt = ["cargo", "fmt", ...manifest, ...packages.flatMap(name => ["-p", name]), "--", "--check"];
   if (lane === "fast") {
     return [
       fmt,
@@ -66,7 +69,7 @@ export function buildVerificationPlan({ lane, filters }) {
   }
   return [
     fmt,
-    ["cargo", "clippy", ...manifest, "--workspace", "--all-targets", "--", "-D", "warnings"],
+    ["cargo", "clippy", ...manifest, "--workspace", "--all-targets", "--features", "web-host", "--", "-D", "warnings"],
     [
       "cargo", "clippy", ...manifest, "--no-default-features", "--features",
       "mcp-server", "--bin", "video-creater-mcp-server", "--", "-D", "warnings",
@@ -79,8 +82,10 @@ export function buildVerificationPlan({ lane, filters }) {
   ];
 }
 
-export function verificationEnvironment(root, lane) {
+export function verificationEnvironment(root, lane, { platform = process.platform } = {}) {
+  const compiler = platform === "linux" ? linuxNativeBuildEnvironment({}) : {};
   const environment = {
+    ...compiler,
     CARGO_TARGET_DIR: resolve(root, "src-tauri/target/verify"),
     CARGO_INCREMENTAL: "0",
   };

@@ -2297,6 +2297,7 @@ printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25",
     }
 
     #[test]
+    #[cfg(feature = "app-runtime")]
     fn prepared_mcp_sidecar_passes_the_schema_v2_probe() {
         let binary = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("binaries")

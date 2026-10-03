@@ -30,6 +30,13 @@ pub mod renderer {
             "Build with the gpu-render feature or use a profile with software fallback.",
         )])
     }
+    pub fn render_gpu_graphics_layer_cancellable(
+        layer: &GpuGraphicsLayer,
+        options: GpuRenderOptions,
+        _is_cancelled: impl Fn() -> bool,
+    ) -> GpuGraphicsResult<GraphicsArtifactManifest> {
+        render_gpu_graphics_layer(layer, options)
+    }
 }
 pub mod shader;
 pub mod software_renderer;

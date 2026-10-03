@@ -7,7 +7,6 @@ use crate::render_pipeline::error::{PipelineError, PipelineErrorCode, PipelineRe
 use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::fs;
 use std::path::Path;
 use std::path::PathBuf;
@@ -192,13 +191,15 @@ fn prepare_task(
         )]);
     }
     let source_path = project_dir.join(&media.relative_path);
-    let source_bytes = fs::read(&source_path).map_err(|error| {
+    let source_sha256 = super::cache::sha256_file_cancellable(&source_path, || {
+        cancellation.is_some_and(RenderCancellationToken::is_cancelled)
+    })
+    .map_err(|error| {
         vec![audio_error(
             &task.item_id,
-            &format!("Denoise source could not be read: {error}"),
+            &format!("Denoise source could not be hashed: {error}"),
         )]
     })?;
-    let source_sha256 = format!("{:x}", Sha256::digest(&source_bytes));
     let fingerprint = super::cache::fingerprint(&Fingerprint {
         schema_version: CACHE_VERSION,
         source_sha256: &source_sha256,
@@ -812,13 +813,12 @@ fn process_wav(
     let enhanced = read_pcm_f32(destination, item_id)?;
     let noise_after = quiet_rms(&enhanced);
     let _ = fs::remove_file(&model_input);
-    let output_sha256 = format!(
-        "{:x}",
-        Sha256::digest(fs::read(destination).map_err(|error| vec![audio_error(
+    let output_sha256 = super::cache::sha256_file(destination).map_err(|error| {
+        vec![audio_error(
             item_id,
-            &format!("Denoised WAV hash read failed: {error}")
-        )])?)
-    );
+            &format!("Denoised WAV hash read failed: {error}"),
+        )]
+    })?;
     Ok(Manifest {
         schema_version: CACHE_VERSION,
         fingerprint: fingerprint.to_string(),
@@ -1083,9 +1083,9 @@ fn validate_cache(manifest: &Path, output: &Path, fingerprint: &str) -> bool {
     {
         return false;
     }
-    fs::read(output)
+    super::cache::sha256_file(output)
         .ok()
-        .is_some_and(|bytes| format!("{:x}", Sha256::digest(bytes)) == manifest.output_sha256)
+        .is_some_and(|hash| hash == manifest.output_sha256)
 }
 
 fn remove_denoise_effect(effects: Option<&mut Value>) {

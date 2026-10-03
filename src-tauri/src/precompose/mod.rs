@@ -747,13 +747,15 @@ fn prepare_lut_task(
         )]);
     }
     let source_path = safe_project_relative_path(project_dir, &media.relative_path, task)?;
-    let source_bytes = fs::read(&source_path).map_err(|error| {
+    let source_sha256 = cache::sha256_file_cancellable(&source_path, || {
+        cancellation.is_some_and(RenderCancellationToken::is_cancelled)
+    })
+    .map_err(|error| {
         vec![precompose_item_error(
             task,
-            &format!("LUT input media could not be read: {error}"),
+            &format!("LUT input media could not be hashed: {error}"),
         )]
     })?;
-    let source_sha256 = format!("{:x}", Sha256::digest(&source_bytes));
     let lut_sha256 = format!("{:x}", Sha256::digest(cube.to_canonical_cube().as_bytes()));
     let lut_strength_micros = (lut_strength * 1_000_000.0).round() as u32;
     let fingerprint = fingerprint(&LutFingerprint {

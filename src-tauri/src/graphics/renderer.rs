@@ -52,11 +52,38 @@ pub fn render_graphics_preview_cancellable(
     options: GraphicsRenderOptions,
     is_cancelled: impl Fn() -> bool,
 ) -> ActionableResult<GraphicsArtifactManifest> {
+    render_graphics_preview_range_cancellable(layer, None, assets, options, is_cancelled)
+}
+
+/// Sample a delivery interval using the original layer's animation duration.
+/// Word timing, reveal duration, delays, and easing remain in authored time.
+pub fn render_graphics_preview_range_cancellable(
+    layer: &GraphicsLayer,
+    source_range: Option<(f64, f64)>,
+    assets: &AssetRegistry,
+    options: GraphicsRenderOptions,
+    is_cancelled: impl Fn() -> bool,
+) -> ActionableResult<GraphicsArtifactManifest> {
     if is_cancelled() {
         return Err(cancelled_graphics_errors(&options.output_dir));
     }
 
     validate_graphics_layer_with_assets(layer, assets)?;
+
+    let (source_offset, output_duration) = source_range.unwrap_or((0.0, layer.duration_seconds));
+    if !source_offset.is_finite()
+        || !output_duration.is_finite()
+        || source_offset < 0.0
+        || output_duration <= 0.0
+        || source_offset + output_duration > layer.duration_seconds + 1e-6
+    {
+        return Err(vec![ActionableError::new(
+            GraphicsErrorCode::GraphicsRenderFailed,
+            "sourceRange",
+            "Graphics sample range is outside the authored layer.",
+            "Choose a positive range within the original layer duration.",
+        )]);
+    }
 
     std::fs::create_dir_all(&options.output_dir).map_err(|error| {
         render_failed(
@@ -88,14 +115,15 @@ pub fn render_graphics_preview_cancellable(
     })?;
 
     let animated = layer_has_animation(&layer.nodes);
-    let frame_count = frame_count_for_duration(layer.duration_seconds, layer.fps, animated);
+    let frame_count = frame_count_for_duration(output_duration, layer.fps, animated);
     let mut preview_pixmap = None;
     let mut render_context = RenderContext::new();
     for frame_index in 0..frame_count {
         if is_cancelled() {
             return Err(cancelled_graphics_errors(&options.output_dir));
         }
-        let time_seconds = frame_time_seconds(frame_index, layer.fps, layer.duration_seconds);
+        let time_seconds =
+            source_offset + frame_time_seconds(frame_index, layer.fps, output_duration);
         let pixmap = render_layer_pixmap(layer, assets, &mut render_context, time_seconds)?;
         let frame_path = frames_dir.join(frame_file_name(frame_index));
         write_png(&pixmap, &frame_path)?;
@@ -110,14 +138,14 @@ pub fn render_graphics_preview_cancellable(
         kind: "rgbaFrameSequence".to_string(),
         dimensions: layer.dimensions.clone(),
         fps: layer.fps,
-        duration_seconds: layer.duration_seconds,
+        duration_seconds: output_duration,
         alpha: layer.alpha,
         frame_count,
         frames_pattern: FRAMES_PATTERN.to_string(),
         playback: graphics_playback_manifest(
             frame_count,
             layer.fps,
-            layer.duration_seconds,
+            output_duration,
             animated,
             FRAMES_PATTERN,
         ),

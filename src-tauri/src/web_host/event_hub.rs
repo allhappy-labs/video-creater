@@ -1,6 +1,6 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, Weak};
 
 use crate::app_service::error::ServiceError;
 use crate::app_service::events::{EventEnvelope, EventSink, ServiceEvent};
@@ -18,13 +18,58 @@ pub enum ResumeResult {
 struct State {
     next_sequence: u64,
     retained: VecDeque<EventEnvelope>,
-    subscribers: Vec<SyncSender<EventEnvelope>>,
+    next_subscriber: u64,
+    subscribers: HashMap<u64, Subscriber>,
+}
+
+enum Subscriber {
+    Sync(SyncSender<EventEnvelope>),
+    Async(tokio::sync::mpsc::Sender<EventEnvelope>),
+}
+
+struct SubscriptionRegistration {
+    state: Weak<Mutex<State>>,
+    id: u64,
+}
+
+impl Drop for SubscriptionRegistration {
+    fn drop(&mut self) {
+        if let Some(state) = self.state.upgrade() {
+            state
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .subscribers
+                .remove(&self.id);
+        }
+    }
+}
+
+pub struct EventSubscription {
+    receiver: Receiver<EventEnvelope>,
+    _registration: SubscriptionRegistration,
+}
+
+impl EventSubscription {
+    pub fn recv(&self) -> Result<EventEnvelope, mpsc::RecvError> {
+        self.receiver.recv()
+    }
+}
+
+pub struct AsyncEventSubscription {
+    receiver: tokio::sync::mpsc::Receiver<EventEnvelope>,
+    _registration: SubscriptionRegistration,
+}
+
+impl AsyncEventSubscription {
+    pub async fn recv(&mut self) -> Option<EventEnvelope> {
+        self.receiver.recv().await
+    }
 }
 
 pub struct EventHub {
     retention: usize,
     client_capacity: usize,
-    state: Mutex<State>,
+    state: Arc<Mutex<State>>,
 }
 
 impl EventHub {
@@ -32,11 +77,12 @@ impl EventHub {
         Self {
             retention: retention.max(1),
             client_capacity: client_capacity.max(1),
-            state: Mutex::new(State {
+            state: Arc::new(Mutex::new(State {
                 next_sequence: 1,
                 retained: VecDeque::new(),
-                subscribers: Vec::new(),
-            }),
+                next_subscriber: 0,
+                subscribers: HashMap::new(),
+            })),
         }
     }
 
@@ -61,12 +107,13 @@ impl EventHub {
         while state.retained.len() > self.retention {
             state.retained.pop_front();
         }
-        state
-            .subscribers
-            .retain(|subscriber| match subscriber.try_send(event.clone()) {
+        state.subscribers.retain(|_, subscriber| match subscriber {
+            Subscriber::Sync(sender) => match sender.try_send(event.clone()) {
                 Ok(()) => true,
                 Err(TrySendError::Full(_) | TrySendError::Disconnected(_)) => false,
-            });
+            },
+            Subscriber::Async(sender) => sender.try_send(event.clone()).is_ok(),
+        });
         event
     }
 
@@ -80,7 +127,7 @@ impl EventHub {
         )
     }
 
-    pub fn subscribe(&self, after_sequence: u64) -> Result<Receiver<EventEnvelope>, ResumeResult> {
+    pub fn subscribe(&self, after_sequence: u64) -> Result<EventSubscription, ResumeResult> {
         let mut state = self
             .state
             .lock()
@@ -96,8 +143,47 @@ impl EventHub {
                 .try_send(event)
                 .expect("subscription channel is sized for retained events");
         }
-        state.subscribers.push(sender);
-        Ok(receiver)
+        let registration = self.register(&mut state, Subscriber::Sync(sender));
+        Ok(EventSubscription {
+            receiver,
+            _registration: registration,
+        })
+    }
+
+    pub fn subscribe_async(
+        &self,
+        after_sequence: u64,
+    ) -> Result<AsyncEventSubscription, ResumeResult> {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let events = match resume(&state, after_sequence) {
+            ResumeResult::Events(events) => events,
+            snapshot @ ResumeResult::SnapshotRequired { .. } => return Err(snapshot),
+        };
+        let (sender, receiver) =
+            tokio::sync::mpsc::channel(self.client_capacity.saturating_add(events.len()));
+        for event in events {
+            sender
+                .try_send(event)
+                .expect("subscription channel is sized for retained events");
+        }
+        let registration = self.register(&mut state, Subscriber::Async(sender));
+        Ok(AsyncEventSubscription {
+            receiver,
+            _registration: registration,
+        })
+    }
+
+    fn register(&self, state: &mut State, subscriber: Subscriber) -> SubscriptionRegistration {
+        let id = state.next_subscriber;
+        state.next_subscriber += 1;
+        state.subscribers.insert(id, subscriber);
+        SubscriptionRegistration {
+            state: Arc::downgrade(&self.state),
+            id,
+        }
     }
 
     pub fn subscriber_count(&self) -> usize {

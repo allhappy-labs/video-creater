@@ -111,12 +111,38 @@ test("Tauri release stages and bundles the curated render runtime before compila
   assert.deepEqual(config.bundle.resources, {
     "resources/render-runtime/": "render-runtime/",
     "resources/compatibility-runtime/": "compatibility-runtime/",
-    "vendor/dotlottie-rs/LICENSES/Apache-2.0.txt":
+    "resources/codex-runtime/LICENSE-APACHE-2.0.txt":
       "codex-runtime/LICENSE-APACHE-2.0.txt",
     "resources/codex-runtime/provenance.json":
       "codex-runtime/provenance.json",
+    "resources/audio-runtime/SOURCE.json": "audio-runtime/SOURCE.json",
+    "resources/audio-runtime/libDF-LICENSE-MIT.txt": "audio-runtime/libDF-LICENSE-MIT.txt",
+    "resources/audio-runtime/libDF-LICENSE-APACHE.txt": "audio-runtime/libDF-LICENSE-APACHE.txt",
+    "resources/audio-runtime/tract-LICENSE-MIT.txt": "audio-runtime/tract-LICENSE-MIT.txt",
+    "resources/audio-runtime/tract-LICENSE-APACHE.txt": "audio-runtime/tract-LICENSE-APACHE.txt",
+    "vendor/deepfilternet/SOURCE.json": "audio-runtime/deepfilternet-SOURCE.json",
+    "vendor/tract-data/SOURCE.json": "audio-runtime/tract-data-SOURCE.json",
+    "vendor/tract-linalg/SOURCE.json": "audio-runtime/tract-linalg-SOURCE.json",
+    "vendor/glib/LICENSE": "glib-runtime/LICENSE",
+    "vendor/glib/COPYRIGHT": "glib-runtime/COPYRIGHT",
+    "vendor/glib/SECURITY-PATCH.json": "glib-runtime/SECURITY-PATCH.json",
+    "vendor/dotlottie-rs/LICENSE": "precompose-runtime/LICENSE",
+    "vendor/dotlottie-rs/THIRD_PARTY_NOTICES.md": "precompose-runtime/THIRD_PARTY_NOTICES.md",
+    "vendor/dotlottie-rs/SOURCE.json": "precompose-runtime/SOURCE.json",
+    "vendor/dotlottie-rs/LICENSES/Apache-2.0.txt": "precompose-runtime/LICENSES/Apache-2.0.txt",
+    "vendor/dotlottie-rs/deps/thorvg/LICENSE": "precompose-runtime/deps/thorvg/LICENSE",
+    "vendor/dotlottie-rs/deps/thorvg/src/loaders/lottie/jerryscript/jerry-core/LICENSE": "precompose-runtime/deps/thorvg/src/loaders/lottie/jerryscript/jerry-core/LICENSE",
+    "vendor/dotlottie-rs/deps/thorvg/src/loaders/lottie/rapidjson/LICENSE": "precompose-runtime/deps/thorvg/src/loaders/lottie/rapidjson/LICENSE",
+    "vendor/dotlottie-rs/deps/thorvg/src/loaders/webp/LICENSE": "precompose-runtime/deps/thorvg/src/loaders/webp/LICENSE",
+    "vendor/dotlottie-rs/deps/thorvg/src/loaders/png/tvgLodePng.cpp": "precompose-runtime/deps/thorvg/src/loaders/png/tvgLodePng.cpp",
+    "vendor/dotlottie-rs/deps/thorvg/src/loaders/jpg/tvgJpgd.cpp": "precompose-runtime/deps/thorvg/src/loaders/jpg/tvgJpgd.cpp",
     "resources/sample-project/": "sample-project/",
   });
+  for (const [source, target] of Object.entries(config.bundle.resources)) {
+    if (!(target as string).endsWith("/")) {
+      assert.ok(readFileSync(resolve(repoRoot, "src-tauri", source)).byteLength > 0, `empty bundled source or notice: ${source}`);
+    }
+  }
 });
 
 test("package scripts expose the release-runtime policy and pre-sign hook", () => {

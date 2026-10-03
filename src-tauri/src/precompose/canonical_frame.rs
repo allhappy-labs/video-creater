@@ -141,7 +141,8 @@ pub fn render_canonical_frame_rgba(
         top_item_id: String::new(),
     };
     let transitions = FlattenTransitions::plan(project);
-    let dependencies = collect_dependencies(project_dir, project, &group, &transitions)?;
+    let dependencies =
+        collect_dependencies(project_dir, project, &group, &transitions, cancellation)?;
     let solids = transitions.solids(top_track_index, group.start_seconds, group.end_seconds);
     let mut compositor = FrameBlendCompositor::new(cfg!(feature = "gpu-render"));
     let mut canvases = vec![vec![0_u8; width as usize * height as usize * 4]];

@@ -10,7 +10,6 @@ rust-version = "1.87"
 
 [workspace]
 members = [
-  ".",
   "crates/precompose-protocol",
   "crates/precompose-worker",
   "crates/compatibility-protocol",
@@ -20,8 +19,18 @@ members = [
   "crates/semantic-encoder-worker",
   "crates/speech-worker",
 ]
-exclude = ["vendor/dotlottie-rs", "vendor/sherpa-onnx-sys"]
+exclude = ["vendor/dotlottie-rs", "vendor/sherpa-onnx-sys", "vendor/deepfilternet/libDF", "vendor/tract-data", "vendor/tract-linalg", "vendor/glib"]
 resolver = "2"
+
+[patch.crates-io]
+# Backport upstream VariantStrIter pointer mutability fix for GTK3/Tauri.
+glib = { path = "vendor/glib" }
+# Upstream tract 0.21.17 fixes RUSTSEC-2026-0217 but pins half 2.4.1, while
+# wgpu 29 requires >=2.5. Use the half range from tract 0.22.2 and relax
+# libm/time caps to preserve current workspace fixes. SOURCE.json records
+# these manifest-only patches; retain the 0.21.17 Rust implementation unchanged.
+tract-data = { path = "vendor/tract-data" }
+tract-linalg = { path = "vendor/tract-linalg" }
 
 [lib]
 name = "video_creater_lib"
@@ -50,6 +59,7 @@ temporal-worker = [
   "dep:temporalio-common",
   "dep:temporalio-macros",
   "dep:temporalio-sdk",
+  "dep:temporalio-workflow",
   "dep:temporalio-sdk-core",
   "dep:tokio",
 ]
@@ -127,11 +137,12 @@ serde_json = "1.0.134"
 sha2 = "0.10.9"
 tauri = { version = "2.11.2", features = ["protocol-asset"], optional = true }
 tempfile = "3.14.0"
-temporalio-client = { version = "0.4.0", optional = true }
-temporalio-common = { version = "0.4.0", optional = true }
-temporalio-macros = { version = "0.4.0", optional = true }
-temporalio-sdk = { version = "0.4.0", optional = true }
-temporalio-sdk-core = { version = "0.4.0", optional = true }
+temporalio-client = { version = "0.5.0", optional = true }
+temporalio-common = { version = "0.5.0", optional = true }
+temporalio-macros = { version = "0.5.0", optional = true }
+temporalio-sdk = { version = "0.5.0", optional = true }
+temporalio-workflow = { version = "0.5.0", optional = true }
+temporalio-sdk-core = { version = "0.5.0", optional = true }
 thiserror = "2.0.9"
 tiny-skia = { version = "0.12.0", optional = true }
 tokio = { version = "1.52.3", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"], optional = true }
@@ -197,3 +208,6 @@ incremental = true
 [profile.test]
 debug = 1
 incremental = false
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+glib-gtk3 = { package = "glib", version = "0.18.5" }

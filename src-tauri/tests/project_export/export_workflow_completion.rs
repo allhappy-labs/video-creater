@@ -2,6 +2,8 @@
 //! only WriteExportArtifact, once the export file exists, completes the job. The editor treats a
 //! completed export job as "the file is ready", so the render step must not complete it.
 
+#![cfg(feature = "ges-render")]
+
 use super::named_exports::fixture_project;
 use serde_json::json;
 use video_creater_lib::edit::render_plan::RenderQuality;
