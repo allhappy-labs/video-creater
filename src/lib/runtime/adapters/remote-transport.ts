@@ -341,9 +341,8 @@ export class RemoteTransport implements BackendTransport {
     if (projectId) {
       const canonicalId = canonicalProjectIdFromResult(result);
       if (canonicalId !== undefined) {
-        this.canonicalProjectIds.delete(projectId);
-        const safeId = safeRemoteCanonicalProjectId(canonicalId);
-        if (safeId) this.canonicalProjectIds.set(projectId, safeId);
+        // Historical custom IDs can route in memory; recovery markers sanitize them before storage.
+        this.canonicalProjectIds.set(projectId, canonicalId);
         if (this.canonicalProjectIds.size > maximumCanonicalProjectIds) this.canonicalProjectIds.delete(this.canonicalProjectIds.keys().next().value!);
       }
       const revision = projectRevisionFromResult(result);

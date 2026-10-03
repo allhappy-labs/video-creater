@@ -6,7 +6,7 @@ import { clearRemoteResourceUrlsForTests } from "./remote-resource-cache";
 beforeEach(() => { window.sessionStorage.clear(); clearRemoteProjectAccessForTests(); clearRemoteResourceUrlsForTests(); });
 afterEach(() => vi.unstubAllGlobals());
 
-function host(loseRecordResponse = false) {
+function host(loseRecordResponse = false, canonicalProjectId = "canonical-project") {
   const envelopes: Record<string, unknown>[] = [];
   const fetcher = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
     const request = JSON.parse(String(init?.body));
@@ -14,7 +14,7 @@ function host(loseRecordResponse = false) {
     envelopes.push(request);
     if (loseRecordResponse && request.operation === "apply_project_actions_to_split_project_folder") throw new Error("lost record-job response");
     const ok = !String(request.operation).startsWith("build_");
-    const result = ["load_split_project_from_folder", "read_project_snapshot_from_split_project_folder"].includes(request.operation) ? { id: "canonical-project", contentRevision: 4, media: [] }
+    const result = ["load_split_project_from_folder", "read_project_snapshot_from_split_project_folder"].includes(request.operation) ? { id: canonicalProjectId, contentRevision: 4, media: [] }
       : request.operation === "remote_build_temporal_job_summary" ? { id: request.payload.jobId, kind: request.payload.kind, status: "queued" }
         : { accepted: true };
     return Response.json({ requestId: request.requestId, ok, result: ok ? result : undefined, error: ok ? undefined : { code: "not_found", message: "Internal desktop builder is unavailable" } });
@@ -48,6 +48,16 @@ it("keeps the project identity in recovery markers after building and recording 
   ]);
   await expect(transport.reconcileProject("catalog-project", "canonical-project")).resolves.toMatchObject({ id: "canonical-project", contentRevision: 4 });
   expect(transport.pendingOutcome("catalog-project")).toBeUndefined();
+});
+
+it("routes historical custom project identities without persisting them in recovery markers", async () => {
+  const customId = "Historic custom project / α";
+  const { transport, envelopes } = host(true, customId);
+  await transport.request("load_split_project_from_folder", { projectDir: "catalog-project" });
+  const job = await transport.request("build_temporal_job_summary", { projectId: customId, kind: "transcribe_media", jobId: "speech-job" });
+  expect(envelopes.at(-1)).toMatchObject({ operation: "remote_build_temporal_job_summary", projectId: "catalog-project" });
+  await expect(transport.request("apply_project_actions_to_split_project_folder", { projectDir: "catalog-project", actions: [{ type: "recordJob", job }] })).rejects.toMatchObject({ outcome: "unknown" });
+  expect(window.sessionStorage.getItem("video-creater.remotePendingOutcomes.v1")).not.toContain(customId);
 });
 
 it("uses the nested workflow project locator for lease, revision and generation admission", async () => {
