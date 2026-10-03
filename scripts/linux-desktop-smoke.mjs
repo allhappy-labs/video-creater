@@ -43,7 +43,7 @@ import {
   resolveArtifactPath,
   retainProjectFiles,
 } from "./linux-desktop-smoke-retain.mjs";
-import { createStepRunner, exitCodeFor, parseSmokeOptions, skipped, smokeRunContext, summarizeSteps } from "./linux-desktop-smoke-steps.mjs";
+import { createStepRunner, exitCodeFor, parseSmokeOptions, redactSmokeMediaTokens, skipped, smokeRunContext, summarizeSteps } from "./linux-desktop-smoke-steps.mjs";
 import { runTemporalSteps, temporalStepNames } from "./linux-desktop-smoke-temporal.mjs";
 import { extractedToolEnvironment, extractedToolPath, stopExtractedToolProcesses } from "./linux-desktop-smoke-tools.mjs";
 
@@ -569,7 +569,7 @@ try {
   });
   evidence.summary = summarizeSteps(evidence.steps);
   exitCode = exitCodeFor(evidence);
-  writeFileSync(join(outDir, "evidence.json"), `${JSON.stringify(evidence, null, 2)}\n`);
+  writeFileSync(join(outDir, "evidence.json"), `${JSON.stringify(redactSmokeMediaTokens(evidence), null, 2)}\n`);
   console.log(JSON.stringify({ exitCode, evidence: join(outDir, "evidence.json") }));
   process.exit(exitCode);
 }

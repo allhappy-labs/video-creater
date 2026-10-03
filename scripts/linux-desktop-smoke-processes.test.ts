@@ -57,3 +57,20 @@ test("the smoke run writes evidence.json when a background process cannot start"
     assert.match(readFileSync(join(out, "Xvfb.log"), "utf8"), /ENOENT/);
   });
 });
+
+
+test("retained child-process logs redact local media authorization tokens", async () => {
+  await withDir(async (dir) => {
+    const token = "b".repeat(64);
+    const url = `http://127.0.0.1:4790/media/${token}/sample.mp4`;
+    const group = createProcessGroup({ cwd: dir });
+    const child = group.start(process.execPath, ["-e", `process.stdout.write(${JSON.stringify(url)}); setTimeout(() => {}, 30000);`]);
+    await new Promise((resolveOutput) => child.stdout!.once("data", resolveOutput));
+    const exited = new Promise((resolveExit) => child.once("exit", resolveExit));
+    group.stopAll(dir);
+    await exited;
+    const log = readFileSync(join(dir, process.execPath.split("/").at(-1)! + ".log"), "utf8");
+    assert.ok(!log.includes(token), "retained process log contains a media token");
+    assert.equal(log, "http://127.0.0.1:4790/media/[redacted]/sample.mp4");
+  });
+});

@@ -5,6 +5,7 @@
 import { spawn } from "node:child_process";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { redactSmokeMediaTokens } from "./linux-desktop-smoke-steps.mjs";
 
 export function createProcessGroup({ cwd, env = process.env }) {
   const children = [];
@@ -52,7 +53,7 @@ export function createProcessGroup({ cwd, env = process.env }) {
         }
       }
       try {
-        writeFileSync(join(logDir, `${command.split("/").at(-1)}.log`), logs.join(""));
+        writeFileSync(join(logDir, `${command.split("/").at(-1)}.log`), redactSmokeMediaTokens(logs.join("")));
       } catch {
         // A missing log must not stop the rest of the cleanup.
       }

@@ -71,6 +71,18 @@ export function parseSmokeOptions(argv) {
   return options;
 }
 
+/** Retained diagnostics must never persist the per-launch loopback media authorization. */
+export function redactSmokeMediaTokens(value) {
+  if (typeof value === "string") {
+    return value.replace(/(https?:\/\/(?:127\.0\.0\.1|localhost|\[::1\]):\d+\/media\/)[^/\s"'?]+/g, "$1[redacted]");
+  }
+  if (Array.isArray(value)) return value.map(redactSmokeMediaTokens);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, redactSmokeMediaTokens(entry)]));
+  }
+  return value;
+}
+
 const skippedMarker = Symbol("skipped step");
 
 /** A step action returns this when its prerequisite is absent, so the run records it as skipped. */
@@ -96,7 +108,7 @@ export function createStepRunner({ evidence, only = [], onFailure = async () => 
         log(`skipped: ${name}: ${detail.reason}`);
         return undefined;
       }
-      evidence.steps.push({ name, status: "passed", ms: Date.now() - startedAt, detail });
+      evidence.steps.push({ name, status: "passed", ms: Date.now() - startedAt, detail: redactSmokeMediaTokens(detail) });
       log(`passed: ${name}`);
       return detail;
     } catch (error) {
@@ -106,8 +118,9 @@ export function createStepRunner({ evidence, only = [], onFailure = async () => 
       } catch {
         screenshot = undefined;
       }
-      evidence.steps.push({ name, status: "failed", ms: Date.now() - startedAt, error: String(error), screenshot });
-      log(`failed: ${name}: ${error}`);
+      const diagnosis = redactSmokeMediaTokens(String(error));
+      evidence.steps.push({ name, status: "failed", ms: Date.now() - startedAt, error: diagnosis, screenshot });
+      log(`failed: ${name}: ${diagnosis}`);
       return undefined;
     }
   };

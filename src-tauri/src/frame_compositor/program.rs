@@ -1,6 +1,11 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+#[cfg(test)]
+thread_local! {
+    static BILINEAR_SAMPLE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum KeyframeEasing {
@@ -245,6 +250,48 @@ pub fn transform_rgba8_srgb(
     if output_width <= 0.0 || output_height <= 0.0 {
         return Err(FrameProgramError::InvalidScale);
     }
+    if transform == &CanvasTransform::default()
+        && program.position_x == 0.0
+        && program.position_y == 0.0
+        && program.scale_x == 1.0
+        && program.scale_y == 1.0
+        && program.rotation_degrees == 0.0
+        && program.crop_top == 0.0
+        && program.crop_right == 0.0
+        && program.crop_bottom == 0.0
+        && program.crop_left == 0.0
+    {
+        // Floating coordinate cancellation can still put an identity sample
+        // into an adjacent pixel on odd rasters. Skip interpolation only when
+        // the original arithmetic recovers the exact source pixel center.
+        let columns = (0..width)
+            .map(|x| {
+                let normalized = (f64::from(x) + 0.5 - center_x) / output_width + 0.5;
+                let exact = normalized * f64::from(width) - 0.5 == f64::from(x);
+                (normalized, exact)
+            })
+            .collect::<Vec<_>>();
+        for y in 0..height {
+            let normalized_y = (f64::from(y) + 0.5 - center_y) / output_height + 0.5;
+            let exact_y = normalized_y * f64::from(height) - 0.5 == f64::from(y);
+            for (x, &(normalized_x, exact_x)) in columns.iter().enumerate() {
+                let sampled = if exact_x && exact_y {
+                    let original = pixel(source, width, x as u32, y);
+                    if original[3] == 0 {
+                        [0; 4]
+                    } else {
+                        original
+                    }
+                } else {
+                    bilinear_sample(source, width, height, normalized_x, normalized_y)
+                };
+                let offset = (y as usize * width as usize + x) * 4;
+                output[offset..offset + 4]
+                    .copy_from_slice(&apply_opacity(sampled, program.opacity));
+            }
+        }
+        return Ok(output);
+    }
     let radians = program.rotation_degrees.to_radians();
     let cosine = radians.cos();
     let sine = radians.sin();
@@ -278,6 +325,8 @@ pub fn transform_rgba8_srgb(
 }
 
 fn bilinear_sample(source: &[u8], width: u32, height: u32, x: f64, y: f64) -> [u8; 4] {
+    #[cfg(test)]
+    BILINEAR_SAMPLE_COUNT.with(|count| count.set(count.get() + 1));
     let source_x = x * f64::from(width) - 0.5;
     let source_y = y * f64::from(height) - 0.5;
     let x0 = source_x.floor().clamp(0.0, f64::from(width - 1)) as u32;
@@ -359,6 +408,90 @@ fn linear_to_srgb(value: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn identity_geometry_preserves_every_channel_alpha_pair_and_skips_exact_samples() {
+        for (width, height) in [(256, 256), (257, 255)] {
+            let source = (0..width * height)
+                .flat_map(|index| {
+                    let value = index as u8;
+                    [value, 255 - value, value / 2, (index / 256) as u8]
+                })
+                .collect::<Vec<_>>();
+            for opacity in [0.0, 0.003, 0.5, 0.73, 1.0] {
+                let mut program = FrameProgram::identity(1.0);
+                program.opacity = NumericCurve::constant(opacity);
+                let sampled = program.sample(0.0).expect("sampled identity");
+                let mut expected = Vec::with_capacity(source.len());
+                for y in 0..height {
+                    for x in 0..width {
+                        // Use the original geometric coordinate arithmetic,
+                        // including cancellation on odd, non-power-of-two rasters.
+                        let normalized_x =
+                            (f64::from(x) + 0.5 - f64::from(width) * 0.5) / f64::from(width) + 0.5;
+                        let normalized_y = (f64::from(y) + 0.5 - f64::from(height) * 0.5)
+                            / f64::from(height)
+                            + 0.5;
+                        expected.extend_from_slice(&apply_opacity(
+                            bilinear_sample(&source, width, height, normalized_x, normalized_y),
+                            sampled.opacity,
+                        ));
+                    }
+                }
+                BILINEAR_SAMPLE_COUNT.with(|count| count.set(0));
+                let output = transform_rgba8_srgb(&source, width, height, &sampled)
+                    .expect("transformed identity");
+                let mismatch = output.iter().zip(&expected).position(|(a, b)| a != b);
+                assert_eq!(
+                    mismatch, None,
+                    "{width}x{height}, opacity {opacity}: first mismatched byte"
+                );
+                assert!(
+                    BILINEAR_SAMPLE_COUNT.with(std::cell::Cell::get) < (width * height) as usize,
+                    "identity geometry must skip exact pixel-center samples"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_geometry_change_retains_resampling() {
+        let source = (0..16_u8)
+            .flat_map(|y| (0..16_u8).flat_map(move |x| [x * 16, y * 16, x ^ y, 255]))
+            .collect::<Vec<_>>();
+        let identity = FrameProgram::identity(1.0).sample(0.0).expect("identity");
+        let changes: [(&str, fn(&mut SampledFrameProgram)); 15] = [
+            ("canvas center x", |p| p.canvas_transform.center_x = 0.25),
+            ("canvas center y", |p| p.canvas_transform.center_y = 0.25),
+            ("canvas width", |p| p.canvas_transform.width = 0.75),
+            ("canvas height", |p| p.canvas_transform.height = 0.75),
+            ("horizontal flip", |p| {
+                p.canvas_transform.flip_horizontal = true
+            }),
+            ("vertical flip", |p| p.canvas_transform.flip_vertical = true),
+            ("position x", |p| p.position_x = 2.0),
+            ("position y", |p| p.position_y = 2.0),
+            ("scale x", |p| p.scale_x = 0.75),
+            ("scale y", |p| p.scale_y = 0.75),
+            ("rotation", |p| p.rotation_degrees = 90.0),
+            ("crop top", |p| p.crop_top = 0.25),
+            ("crop right", |p| p.crop_right = 0.25),
+            ("crop bottom", |p| p.crop_bottom = 0.25),
+            ("crop left", |p| p.crop_left = 0.25),
+        ];
+        for (name, change) in changes {
+            let mut sampled = identity.clone();
+            change(&mut sampled);
+            BILINEAR_SAMPLE_COUNT.with(|count| count.set(0));
+            let output =
+                transform_rgba8_srgb(&source, 16, 16, &sampled).expect("transformed geometry");
+            assert_ne!(output, source, "{name} must change pixels");
+            assert!(
+                BILINEAR_SAMPLE_COUNT.with(std::cell::Cell::get) > 0,
+                "{name} must evaluate the bilinear sampler"
+            );
+        }
+    }
 
     #[test]
     fn curves_apply_easing_and_hold_deterministically() {

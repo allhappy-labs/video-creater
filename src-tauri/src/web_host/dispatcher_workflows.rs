@@ -701,16 +701,9 @@ fn start_temporal(job: &JobSummary) -> Result<Value, ServiceError> {
         .build()
         .map_err(internal)?;
     runtime.block_on(async {
-        let (connection_options, client_options) =
-            temporalio_client::ClientOptions::load_from_config(
-                temporalio_client::envconfig::LoadClientConfigProfileOptions::default(),
-            )
-            .map_err(internal)?;
-        let connection = temporalio_client::Connection::connect(connection_options)
+        let client = temporal_reconcile::connect_temporal_client_from_environment()
             .await
             .map_err(internal)?;
-        let client =
-            temporalio_client::Client::new(connection, client_options).map_err(internal)?;
         value(
             temporal_start_workflow_with_client(&client, job)
                 .await
@@ -722,3 +715,7 @@ fn start_temporal(job: &JobSummary) -> Result<Value, ServiceError> {
 fn start_temporal(job: &JobSummary) -> Result<Value, ServiceError> {
     value(temporal_workflow_unavailable_start_result(job).map_err(internal)?)
 }
+
+#[cfg(all(test, feature = "temporal-worker"))]
+#[path = "dispatcher_workflow_connection_tests.rs"]
+mod connection_tests;

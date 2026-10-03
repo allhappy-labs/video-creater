@@ -177,18 +177,25 @@ mod unix_tests {
             .unwrap();
         assert_eq!(reloaded["mediaFolders"][0]["id"], "browser-folder");
 
-        let reconciled = dispatcher
-            .dispatch(&request(
-                "reconcile_temporal_jobs_in_split_project_folder",
-                Some(catalog_id),
-                serde_json::json!({
-                    "projectDir": catalog_id,
-                    "updatedAt": "2026-09-24T00:00:30Z"
-                }),
-            ))
-            .unwrap();
-        assert_eq!(reconciled["project"]["id"], reloaded["id"]);
-        assert_eq!(reconciled["serviceReachable"], true);
+        let mut reconcile_request = request(
+            "reconcile_temporal_jobs_in_split_project_folder",
+            Some(catalog_id),
+            serde_json::json!({
+                "projectDir": catalog_id,
+                "updatedAt": "2026-09-24T00:00:30Z"
+            }),
+        );
+        reconcile_request.expected_revision = reloaded["contentRevision"].as_u64();
+        let reconciled = dispatcher.dispatch(&reconcile_request).unwrap();
+        assert_eq!(
+            reconciled["serviceReachable"],
+            cfg!(feature = "temporal-worker")
+        );
+        if cfg!(feature = "temporal-worker") {
+            assert_eq!(reconciled["project"]["id"], reloaded["id"]);
+        } else {
+            assert!(reconciled["project"].is_null());
+        }
         assert_eq!(reconciled["failedJobIds"], serde_json::json!([]));
 
         let fixture_dispatcher = HostDispatcher::with_project_catalog_and_agent_fixture(

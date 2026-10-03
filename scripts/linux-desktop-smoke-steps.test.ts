@@ -182,3 +182,20 @@ test("parseSmokeOptions reads the export destination and render responsiveness f
   assert.equal(parseSmokeOptions([]).exportTasks, false);
   assert.equal(parseSmokeOptions(["--export-tasks"]).exportTasks, true);
 });
+
+
+test("step evidence and diagnostics redact local media tokens without changing accepted detail", async () => {
+  const token = "a".repeat(64);
+  const url = `http://127.0.0.1:4788/media/${token}/sample.mp4`;
+  const detail = { videos: [{ src: url, duration: 8 }], output: "exports/sample.mp4" };
+  const evidence = { steps: [] as Record<string, unknown>[] };
+  const logs: string[] = [];
+  const step = createStepRunner({ evidence, log: (line: string) => logs.push(line) });
+  assert.equal(await step("playback", async () => detail), detail);
+  await step("failed playback", async () => { throw new Error(`Playback failed: ${url}`); });
+  assert.ok(!JSON.stringify(evidence).includes(token), "persisted evidence contains a media token");
+  assert.ok(!logs.join("\n").includes(token), "logged diagnostics contain a media token");
+  assert.ok(JSON.stringify(evidence).includes("/media/[redacted]/sample.mp4"));
+  assert.equal(detail.videos[0].src, url, "validation must continue using the real source URL");
+  assert.ok(JSON.stringify(evidence).includes("exports/sample.mp4"));
+});
