@@ -93,6 +93,67 @@ async fn media_and_artifact_tickets_stream_scoped_ranges_without_paths_in_urls()
     .unwrap();
     let (cookie, csrf) = pair(&app).await;
 
+    let prepared_path = "cache/precompose/v1/sha256/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/frames/frame-000000.png";
+    std::fs::create_dir_all(project_dir.join(prepared_path).parent().unwrap()).unwrap();
+    std::fs::write(project_dir.join(prepared_path), b"prepared-frame").unwrap();
+    std::fs::write(project_dir.join("media/private.txt"), b"private").unwrap();
+    let captured_path = "renders/capture/preview-qa/preview-frames/preview-0001.png";
+    std::fs::create_dir_all(project_dir.join(captured_path).parent().unwrap()).unwrap();
+    std::fs::write(project_dir.join(captured_path), b"capture").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(
+        project_dir.join("media/private.txt"),
+        project_dir.join("cache/precompose/link.png"),
+    )
+    .unwrap();
+    std::fs::write(
+        project_dir.join("cache/preview-resources.json"),
+        serde_json::to_vec(&json!({"schemaVersion":1,"paths":[prepared_path,captured_path,"media/private.txt","cache/precompose/../private.txt","cache/precompose/link.png"]})).unwrap(),
+    ).unwrap();
+    let prepared_ticket = post_json(
+        &app,
+        "/api/v1/resource-tickets/media",
+        &cookie,
+        &csrf,
+        json!({"projectId":project_id,"relativePaths":[prepared_path,captured_path]}),
+    )
+    .await;
+    assert_eq!(prepared_ticket.0, StatusCode::OK);
+    let prepared_url = prepared_ticket.1["urls"][format!("{project_id}/{prepared_path}")]
+        .as_str()
+        .unwrap();
+    let prepared_frame = app
+        .clone()
+        .oneshot(
+            Request::get(prepared_url)
+                .header(header::COOKIE, &cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(prepared_frame.status(), StatusCode::OK);
+    assert_eq!(
+        &to_bytes(prepared_frame.into_body(), 64).await.unwrap()[..],
+        b"prepared-frame"
+    );
+    for unrecorded in [
+        "cache/precompose/unrecorded.png",
+        "media/private.txt",
+        "cache/precompose/../private.txt",
+        "cache/precompose/link.png",
+    ] {
+        let denied = post_json(
+            &app,
+            "/api/v1/resource-tickets/media",
+            &cookie,
+            &csrf,
+            json!({"projectId":project_id,"relativePaths":[unrecorded]}),
+        )
+        .await;
+        assert_eq!(denied.0, StatusCode::FORBIDDEN, "{unrecorded}");
+    }
+
     let media_ticket = post_json(
         &app,
         "/api/v1/resource-tickets/media",

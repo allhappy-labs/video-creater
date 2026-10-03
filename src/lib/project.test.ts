@@ -220,6 +220,25 @@ describe("project command adapters", () => {
     });
   });
 
+  it("requires canonical frames for orphan shader and motion template items", () => {
+    for (const [kind, properties] of [
+      ["hyperframe_scene", { shaderBackgroundTemplateId: "shadertoy-octagrams-v1" }],
+      ["overlay", { templateId: "kinetic-lower-third-v1" }],
+    ] as const) {
+      const visualProject: VideoProject = {
+        ...project,
+        timeline: { durationSeconds: 4, tracks: [{
+          id: "graphics", name: "Graphics", kind, enabled: true, locked: false,
+          items: [{ id: "visual", kind, startSeconds: 0, durationSeconds: 4,
+            source: { type: "generated", artifactId: "orphan-template" }, label: "Visual", properties }],
+        }] },
+      };
+      expect(projectNeedsCanonicalPreview(visualProject)).toBe(true);
+      visualProject.timeline.tracks[0]!.enabled = false;
+      expect(projectNeedsCanonicalPreview(visualProject)).toBe(false);
+    }
+  });
+
   it("detects only visual classes that require canonical prepared preview sources", () => {
     expect(projectNeedsCanonicalPreview(project)).toBe(false);
     const withLottie = {

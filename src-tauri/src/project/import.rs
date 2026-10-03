@@ -32,6 +32,8 @@ pub enum ImportMediaError {
     EmptySelection,
     #[error("no selected files can be imported")]
     NoImportableFiles,
+    #[error("{0}")]
+    InvalidLottie(String),
     #[error("failed to save project after import: {0}")]
     SaveProject(String),
     #[error("failed to copy media from {source_path} to {destination}: {message}")]
@@ -75,6 +77,17 @@ pub fn import_media_files_with_names(
     let mut skipped = Vec::new();
 
     for source_path in source_paths {
+        if source_path
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case("lottie"))
+        {
+            if let Err(message) = dotlottie_metadata(source_path) {
+                if message.contains("multiple animations") {
+                    return Err(ImportMediaError::InvalidLottie(message));
+                }
+            }
+        }
         match importable_media_kind(source_path) {
             Some(kind) if source_path.is_file() => {
                 let display_name = names.get(source_path).map(String::as_str);
@@ -247,14 +260,16 @@ pub(crate) fn path_is_lottie_media(path: &Path) -> bool {
         .as_deref()
     {
         Some("json") => lottie_json_metadata(path).is_some(),
-        Some("lottie") => dotlottie_archive_has_manifest_and_animation(path),
+        Some("lottie") => dotlottie_metadata(path).is_ok(),
         _ => false,
     }
 }
 
 fn import_metadata_for(path: &Path, kind: &MediaKind) -> ImportedMediaMetadata {
     match kind {
-        MediaKind::Lottie => lottie_json_metadata(path).unwrap_or_default(),
+        MediaKind::Lottie => lottie_json_metadata(path)
+            .or_else(|| dotlottie_metadata(path).ok())
+            .unwrap_or_default(),
         MediaKind::Video | MediaKind::Audio | MediaKind::Image => wav_metadata(path)
             .or_else(|| {
                 probe_source_metadata(path)
@@ -310,7 +325,16 @@ fn lottie_json_metadata(path: &Path) -> Option<ImportedMediaMetadata> {
         return None;
     }
 
-    let value: Value = serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()?;
+    lottie_json_metadata_from_bytes(&read_lottie_source_bytes(path).ok()?)
+}
+
+#[cfg(feature = "web-host")]
+pub(crate) fn valid_lottie_json_bytes(bytes: &[u8]) -> bool {
+    lottie_json_metadata_from_bytes(bytes).is_some()
+}
+
+fn lottie_json_metadata_from_bytes(bytes: &[u8]) -> Option<ImportedMediaMetadata> {
+    let value: Value = serde_json::from_slice(bytes).ok()?;
     let object = value.as_object()?;
     if !object.get("layers").is_some_and(Value::is_array) {
         return None;
@@ -319,129 +343,139 @@ fn lottie_json_metadata(path: &Path) -> Option<ImportedMediaMetadata> {
     let fps = object.get("fr").and_then(Value::as_f64)?;
     let in_point = object.get("ip").and_then(Value::as_f64).unwrap_or(0.0);
     let out_point = object.get("op").and_then(Value::as_f64)?;
-    if !fps.is_finite() || fps <= 0.0 || !out_point.is_finite() || out_point <= in_point {
+    if !fps.is_finite()
+        || fps <= 0.0
+        || !in_point.is_finite()
+        || !out_point.is_finite()
+        || out_point <= in_point
+    {
         return None;
     }
 
     let width = object
         .get("w")
         .and_then(Value::as_u64)
-        .and_then(|value| u32::try_from(value).ok());
+        .and_then(|value| u32::try_from(value).ok())
+        .filter(|value| *value > 0)?;
     let height = object
         .get("h")
         .and_then(Value::as_u64)
-        .and_then(|value| u32::try_from(value).ok());
+        .and_then(|value| u32::try_from(value).ok())
+        .filter(|value| *value > 0)?;
+    let duration_seconds = (out_point - in_point) / fps;
+    if !duration_seconds.is_finite() || duration_seconds <= 0.0 {
+        return None;
+    }
 
     Some(ImportedMediaMetadata {
-        duration_seconds: Some((out_point - in_point) / fps),
-        width,
-        height,
+        duration_seconds: Some(duration_seconds),
+        width: Some(width),
+        height: Some(height),
         fps: Some(fps),
     })
 }
 
-fn dotlottie_archive_has_manifest_and_animation(path: &Path) -> bool {
-    let Ok(bytes) = std::fs::read(path) else {
-        return false;
-    };
-    dotlottie_entries_have_manifest_and_animation(&bytes)
+pub(crate) struct LottieSourceMetadata {
+    pub duration_seconds: f64,
+    pub width: u32,
+    pub height: u32,
+    pub fps: f64,
 }
 
-fn dotlottie_entries_have_manifest_and_animation(bytes: &[u8]) -> bool {
-    const EOCD_SIGNATURE: &[u8; 4] = b"PK\x05\x06";
-    const CENTRAL_DIRECTORY_SIGNATURE: &[u8; 4] = b"PK\x01\x02";
-    const EOCD_MIN_LEN: usize = 22;
-    const CENTRAL_DIRECTORY_HEADER_LEN: usize = 46;
-
-    if bytes.len() < EOCD_MIN_LEN {
-        return false;
-    }
-
-    let search_start = bytes.len().saturating_sub(EOCD_MIN_LEN + u16::MAX as usize);
-    let Some(eocd_offset) = bytes[search_start..]
-        .windows(EOCD_SIGNATURE.len())
-        .rposition(|window| window == EOCD_SIGNATURE)
-        .map(|offset| search_start + offset)
-    else {
-        return false;
-    };
-
-    if eocd_offset + EOCD_MIN_LEN > bytes.len() {
-        return false;
-    }
-
-    let entry_count = read_zip_u16(bytes, eocd_offset + 10) as usize;
-    let central_size = read_zip_u32(bytes, eocd_offset + 12) as usize;
-    let central_offset = read_zip_u32(bytes, eocd_offset + 16) as usize;
-    if entry_count == 0
-        || central_offset
-            .checked_add(central_size)
-            .is_none_or(|end| end > bytes.len())
+pub(crate) fn inspect_lottie_source_metadata(path: &Path) -> Result<LottieSourceMetadata, String> {
+    let metadata = if path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case("json"))
     {
-        return false;
-    }
-
-    let mut offset = central_offset;
-    let central_end = central_offset + central_size;
-    let mut has_manifest = false;
-    let mut has_animation = false;
-
-    for _ in 0..entry_count {
-        if offset
-            .checked_add(CENTRAL_DIRECTORY_HEADER_LEN)
-            .is_none_or(|end| end > central_end)
-            || &bytes[offset..offset + CENTRAL_DIRECTORY_SIGNATURE.len()]
-                != CENTRAL_DIRECTORY_SIGNATURE
-        {
-            return false;
-        }
-
-        let name_len = read_zip_u16(bytes, offset + 28) as usize;
-        let extra_len = read_zip_u16(bytes, offset + 30) as usize;
-        let comment_len = read_zip_u16(bytes, offset + 32) as usize;
-        let name_start = offset + CENTRAL_DIRECTORY_HEADER_LEN;
-        let Some(name_end) = name_start.checked_add(name_len) else {
-            return false;
-        };
-        if name_end > central_end {
-            return false;
-        }
-
-        if let Ok(name) = std::str::from_utf8(&bytes[name_start..name_end]) {
-            let normalized = name.trim_start_matches('/').to_ascii_lowercase();
-            if normalized == "manifest.json" {
-                has_manifest = true;
-            } else if normalized.starts_with("animations/")
-                && normalized.ends_with(".json")
-                && normalized.len() > "animations/".len()
-            {
-                has_animation = true;
-            }
-        }
-
-        let Some(next_offset) = name_end
-            .checked_add(extra_len)
-            .and_then(|value| value.checked_add(comment_len))
-        else {
-            return false;
-        };
-        offset = next_offset;
-    }
-
-    has_manifest && has_animation
+        lottie_json_metadata(path).ok_or_else(|| "Lottie source metadata is invalid".to_string())?
+    } else {
+        dotlottie_metadata(path)?
+    };
+    Ok(LottieSourceMetadata {
+        duration_seconds: metadata
+            .duration_seconds
+            .ok_or_else(|| "Lottie duration is missing".to_string())?,
+        width: metadata
+            .width
+            .ok_or_else(|| "Lottie width is missing".to_string())?,
+        height: metadata
+            .height
+            .ok_or_else(|| "Lottie height is missing".to_string())?,
+        fps: metadata
+            .fps
+            .ok_or_else(|| "Lottie frame rate is missing".to_string())?,
+    })
 }
 
-fn read_zip_u16(bytes: &[u8], offset: usize) -> u16 {
-    u16::from_le_bytes([bytes[offset], bytes[offset + 1]])
+const MAX_LOTTIE_IMPORT_BYTES: u64 = 16 * 1024 * 1024;
+
+pub(crate) fn read_lottie_source_bytes(path: &Path) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    std::fs::File::open(path)
+        .map_err(|error| error.to_string())?
+        .take(MAX_LOTTIE_IMPORT_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| error.to_string())?;
+    if bytes.len() as u64 > MAX_LOTTIE_IMPORT_BYTES {
+        return Err("dotLottie source exceeds import byte limit".into());
+    }
+    Ok(bytes)
 }
 
-fn read_zip_u32(bytes: &[u8], offset: usize) -> u32 {
-    u32::from_le_bytes([
-        bytes[offset],
-        bytes[offset + 1],
-        bytes[offset + 2],
-        bytes[offset + 3],
-    ])
+fn dotlottie_metadata(path: &Path) -> Result<ImportedMediaMetadata, String> {
+    dotlottie_metadata_from_bytes(&read_lottie_source_bytes(path)?)
+}
+
+#[cfg(feature = "web-host")]
+pub(crate) fn valid_dotlottie_bytes(bytes: &[u8]) -> Result<(), String> {
+    dotlottie_metadata_from_bytes(bytes).map(|_| ())
+}
+
+fn dotlottie_metadata_from_bytes(bytes: &[u8]) -> Result<ImportedMediaMetadata, String> {
+    use std::io::{Cursor, Read};
+    use video_creater_precompose_protocol::{archive::validate_dotlottie_archive, WorkerBudgets};
+    let budgets = WorkerBudgets {
+        max_source_bytes: MAX_LOTTIE_IMPORT_BYTES,
+        max_archive_entries: 512,
+        max_expanded_archive_bytes: 256 * 1024 * 1024,
+        max_compression_ratio: 200,
+        max_frames: 1,
+        max_pixels_per_frame: 1,
+        max_wall_time_ms: 1,
+        max_memory_bytes: 1,
+        max_output_bytes: 1,
+    };
+    let ids =
+        validate_dotlottie_archive(bytes, None, &budgets).map_err(|error| error.to_string())?;
+    if ids.len() != 1 {
+        return Err("dotLottie source must contain exactly one animation".into());
+    }
+    let mut archive =
+        zip::ZipArchive::new(Cursor::new(bytes)).map_err(|error| error.to_string())?;
+    let old_name = format!("animations/{}.json", ids[0]);
+    let name = if archive.file_names().any(|name| name == old_name) {
+        old_name
+    } else {
+        format!("a/{}.json", ids[0])
+    };
+    let entry = archive
+        .by_name(&name)
+        .map_err(|_| "dotLottie manifest animation is missing".to_string())?;
+    if entry.size() > MAX_LOTTIE_IMPORT_BYTES {
+        return Err("dotLottie animation exceeds import byte limit".into());
+    }
+    let mut json = Vec::new();
+    entry
+        .take(MAX_LOTTIE_IMPORT_BYTES + 1)
+        .read_to_end(&mut json)
+        .map_err(|error| error.to_string())?;
+    if json.len() as u64 > MAX_LOTTIE_IMPORT_BYTES {
+        return Err("dotLottie animation exceeds import byte limit".into());
+    }
+    lottie_json_metadata_from_bytes(&json)
+        .ok_or_else(|| "dotLottie animation metadata is invalid".into())
 }
 
 #[cfg(test)]

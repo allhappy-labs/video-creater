@@ -386,11 +386,22 @@ async fn mint_media_tickets(
         .map(|value| collect_relative_paths(&value))
         .unwrap_or_default();
     allowed.extend(recorded_render_output_paths(&project_dir));
+    let preview_paths = crate::app_service::preview::recorded_preview_resource_paths(&project_dir);
+    allowed.extend(preview_paths.iter().cloned());
     let mut urls = BTreeMap::new();
     let mut expiries = BTreeMap::new();
     for relative_path in request.relative_paths {
         if relative_path.len() > 1_024 || !allowed.contains(&relative_path) {
             return forbidden("media resource is not recorded by this project");
+        }
+        if preview_paths.contains(&relative_path)
+            && crate::project::split::validate_split_project_write_path(
+                &project_dir,
+                &project_dir.join(&relative_path),
+            )
+            .is_err()
+        {
+            return forbidden("preview resource is not available");
         }
         let Ok(path) = super::media::resolve_project_resource(
             &state.projects,
@@ -1343,6 +1354,11 @@ fn upload_error(error: UploadError) -> Response {
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
             "unsupported_media",
             "file is not supported media",
+        ),
+        UploadError::AmbiguousAnimation => (
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+            "ambiguous_animation",
+            "dotLottie archives with multiple animations require an explicit animationId; upload a single-animation archive",
         ),
         UploadError::InvalidId | UploadError::Io => (
             StatusCode::INTERNAL_SERVER_ERROR,

@@ -31,10 +31,10 @@ it("preserves synchronous render's long allowance and short durable admission cl
 it("preserves cancellation bypass and the existing narrow reader FIFO bypass", () => {
   expect(remoteOperationClass("cancel_render_job_in_split_project_folder", {})).toBe("cancellation");
   expect(remoteOperationBypassesQueue("cancel_render_job_in_split_project_folder")).toBe(true);
-  for (const reader of ["load_job_progress_from_split_project_folder", "load_render_attempt_in_split_project_folder", "read_project_snapshot_from_split_project_folder"]) {
+  for (const reader of ["load_job_progress_from_split_project_folder", "load_render_attempt_in_split_project_folder", "read_project_snapshot_from_split_project_folder", "prepare_project_preview"]) {
     expect(remoteOperationBypassesQueue(reader)).toBe(true);
   }
-  for (const reader of ["capture_canonical_preview_frame_in_split_project_folder", "prepare_project_preview", "preview_storage_cleanup", "mcp_client_configuration"]) {
+  for (const reader of ["capture_canonical_preview_frame_in_split_project_folder", "preview_storage_cleanup", "mcp_client_configuration"]) {
     expect(remoteOperationBypassesQueue(reader)).toBe(false);
   }
 });

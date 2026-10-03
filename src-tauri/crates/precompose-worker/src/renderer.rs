@@ -896,123 +896,17 @@ fn validate_dotlottie_archive(
     request: &PrecomposeRequest,
     source: &[u8],
 ) -> Result<(), BakeFailure> {
-    let mut archive = ZipArchive::new(Cursor::new(source)).map_err(|error| {
-        BakeFailure::new(
-            WorkerErrorCode::SourceInvalid,
-            format!("invalid dotLottie ZIP: {error}"),
-        )
-    })?;
-    if archive.len() > request.budgets.max_archive_entries as usize {
-        return Err(BakeFailure::new(
-            WorkerErrorCode::BudgetExceeded,
-            "dotLottie archive exceeds maxArchiveEntries",
-        ));
-    }
-    let mut expanded_bytes = 0_u64;
-    let mut archive_animation_ids = None;
-    for index in 0..archive.len() {
-        let mut entry = archive.by_index(index).map_err(|error| {
-            BakeFailure::new(
-                WorkerErrorCode::SourceInvalid,
-                format!("unable to inspect dotLottie entry: {error}"),
-            )
-        })?;
-        if entry.enclosed_name().is_none() {
-            return Err(BakeFailure::new(
-                WorkerErrorCode::SourceInvalid,
-                "dotLottie archive contains an unsafe path",
-            ));
-        }
-        if entry
-            .unix_mode()
-            .is_some_and(|mode| mode & 0o170000 == 0o120000)
-        {
-            return Err(BakeFailure::new(
-                WorkerErrorCode::SourceInvalid,
-                "dotLottie archive contains a symlink",
-            ));
-        }
-        expanded_bytes = expanded_bytes.checked_add(entry.size()).ok_or_else(|| {
-            BakeFailure::new(
-                WorkerErrorCode::BudgetExceeded,
-                "expanded archive size overflow",
-            )
-        })?;
-        if expanded_bytes > request.budgets.max_expanded_archive_bytes {
-            return Err(BakeFailure::new(
-                WorkerErrorCode::BudgetExceeded,
-                "dotLottie archive exceeds maxExpandedArchiveBytes",
-            ));
-        }
-        if entry.size() > 0
-            && (entry.compressed_size() == 0
-                || entry.size()
-                    > entry
-                        .compressed_size()
-                        .saturating_mul(u64::from(request.budgets.max_compression_ratio)))
-        {
-            return Err(BakeFailure::new(
-                WorkerErrorCode::BudgetExceeded,
-                "dotLottie entry exceeds maxCompressionRatio",
-            ));
-        }
-        if entry.name().ends_with(".json") {
-            let mut json_bytes = Vec::with_capacity(entry.size() as usize);
-            entry.read_to_end(&mut json_bytes).map_err(|error| {
-                BakeFailure::new(
-                    WorkerErrorCode::SourceInvalid,
-                    format!("unable to validate dotLottie JSON entry: {error}"),
-                )
-            })?;
-            if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&json_bytes) {
-                reject_external_assets(&json)?;
-                if entry.name() == "manifest.json" {
-                    let ids = json
-                        .get("animations")
-                        .and_then(serde_json::Value::as_array)
-                        .map(|animations| {
-                            animations
-                                .iter()
-                                .filter_map(|animation| {
-                                    animation
-                                        .get("id")
-                                        .and_then(serde_json::Value::as_str)
-                                        .map(str::to_string)
-                                })
-                                .collect::<Vec<_>>()
-                        })
-                        .unwrap_or_default();
-                    archive_animation_ids = Some(ids);
-                }
-            }
-        }
-    }
-    let animation_ids = archive_animation_ids.ok_or_else(|| {
-        BakeFailure::new(
-            WorkerErrorCode::SourceInvalid,
-            "dotLottie archive is missing a valid manifest.json",
-        )
-    })?;
-    if animation_ids.len() > 1 && request.source.animation_id.is_none() {
-        return Err(BakeFailure::new(
-            WorkerErrorCode::SourceInvalid,
-            "dotLottie archives with multiple animations require an explicit animationId",
-        )
-        .field("source.animationId"));
-    }
-    if let Some(selected) = request.source.animation_id.as_deref() {
-        if !animation_ids
-            .iter()
-            .any(|animation_id| animation_id == selected)
-        {
-            return Err(BakeFailure::new(
-                WorkerErrorCode::SourceInvalid,
-                format!("dotLottie animationId `{selected}` is not present in manifest.json"),
-            )
-            .field("source.animationId"));
-        }
-    }
-    Ok(())
+    video_creater_precompose_protocol::archive::validate_dotlottie_archive(
+        source,
+        request.source.animation_id.as_deref(),
+        &request.budgets,
+    )
+    .map(|_| ())
+    .map_err(|error| BakeFailure {
+        code: error.code,
+        message: error.message,
+        field: error.field,
+    })
 }
 
 fn check_wall_budget(started: Instant, budget: Duration) -> Result<(), BakeFailure> {

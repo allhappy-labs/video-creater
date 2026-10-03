@@ -26,7 +26,7 @@ export function PreviewViewport({
     >
       <div
         data-testid="preview-canvas"
-        className="relative overflow-hidden rounded-sm bg-background [container-type:inline-size]"
+        className="isolate relative overflow-hidden rounded-sm bg-background [container-type:inline-size]"
         style={{ aspectRatio: `${ratio}`, width: `min(100cqw, calc(100cqh * ${ratio}))` }}
       >
         {children}

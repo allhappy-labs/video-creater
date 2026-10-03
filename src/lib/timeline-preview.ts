@@ -90,6 +90,8 @@ export interface TimelinePreviewFrame {
    * at or below an active group's top track (Rust `collect_dependencies`). Omitted when none.
    */
   flattenedCoverItemIds?: string[];
+  /** Authored shader and motion templates resolved by Rust into animated frame sequences. */
+  canonicalTemplateItemIds?: string[];
 }
 
 interface TimelinePreviewOverlayLayer {
@@ -258,6 +260,7 @@ export function buildTimelinePreviewFrame(input: TimelinePreviewInput): Timeline
   // Skip transitions render preparation removes, and mark the ones flattened composites bake.
   const flattenedGroups = plannedGroups.filter((group) => input.playheadSeconds >= group.start && input.playheadSeconds < group.end);
   const flattenedCoverItemIds: string[] = [];
+  const canonicalTemplateItemIds: string[] = [];
   let hasMissingMedia = false;
   let hasUnsupportedSource = false;
 
@@ -341,6 +344,10 @@ export function buildTimelinePreviewFrame(input: TimelinePreviewInput): Timeline
         });
         continue;
       }
+      const shaderTemplate = item.kind === "hyperframe_scene" && typeof item.properties.shaderBackgroundTemplateId === "string";
+      const motionTemplate = item.kind === "overlay" && typeof item.properties.templateId === "string";
+      if (shaderTemplate || motionTemplate) canonicalTemplateItemIds.push(item.id);
+      if (shaderTemplate) continue;
       const overlayLayer = buildOverlayLayer(item, input.playheadSeconds);
       if (overlayLayer?.overlayKind === "template") {
         overlayLayers.push(overlayLayer);
@@ -453,7 +460,7 @@ export function buildTimelinePreviewFrame(input: TimelinePreviewInput): Timeline
       ? "missing-media"
       : hasUnsupportedSource
         ? "unsupported-source"
-        : layers.length > 0 || audioLayers.length > 0 || overlayLayers.length > 0
+        : layers.length > 0 || audioLayers.length > 0 || overlayLayers.length > 0 || canonicalTemplateItemIds.length > 0
         ? "ready"
         : "empty",
     playheadSeconds: input.playheadSeconds,
@@ -463,6 +470,7 @@ export function buildTimelinePreviewFrame(input: TimelinePreviewInput): Timeline
     issues,
     ...(transitions.length > 0 ? { transitions } : {}),
     ...(flattenedCoverItemIds.length > 0 ? { flattenedCoverItemIds } : {}),
+    ...(canonicalTemplateItemIds.length > 0 ? { canonicalTemplateItemIds } : {}),
   };
 }
 

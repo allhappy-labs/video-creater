@@ -13,12 +13,13 @@ import { useEditorStore } from "../store/editor-store-context";
 import { PreviewTransport, type PreviewFullscreenControls } from "./preview-transport";
 import { PreviewViewport } from "./preview-viewport";
 import { usePreviewKeys } from "./use-preview-keys";
+import { AnimatedAssetPreview } from "./animated-asset-preview";
 
 const playableKinds: ReadonlySet<string> = new Set(["video", "generated", "audio"]);
 const waveformBars = Array.from({ length: 28 }, (_, index) => 18 + ((index * 13) % 42));
 
 /** The "Previewing: name · Back to timeline" chip. */
-function AssetPreviewChip({ label, onBack }: { readonly label: string; readonly onBack: () => void }) {
+export function AssetPreviewChip({ label, onBack }: { readonly label: string; readonly onBack: () => void }) {
   return (
     <div className="absolute left-3 top-3 z-40 flex max-w-[calc(100%-1.5rem)] items-center gap-1.5 rounded-full bg-popover/95 py-1 pl-3 pr-1 text-[12px] text-popover-foreground shadow-lg">
       <span className="min-w-0 truncate">
@@ -53,10 +54,15 @@ function SourcePlaceholder({ label, kind }: { readonly label: string; readonly k
  * the store `playing` flag (Space and the play button toggle it); the media element reports pauses,
  * the end and load failures back.
  */
-export function AssetPreview({ mediaId, fullscreen, onToggleFullscreen }: { readonly mediaId: string } & PreviewFullscreenControls) {
+export function AssetPreview(props: { readonly mediaId: string } & PreviewFullscreenControls) {
+  const kind = useEditorStore((state) => state.project.media.find((media) => media.id === props.mediaId)?.kind);
+  return kind === "lottie" ? <AnimatedAssetPreview {...props} /> : <PlayableAssetPreview {...props} />;
+}
+
+function PlayableAssetPreview({ mediaId, fullscreen, onToggleFullscreen }: { readonly mediaId: string } & PreviewFullscreenControls) {
   const project = useEditorStore((state) => state.project);
   const projectDir = useEditorStore((state) => state.projectDir);
-  useMediaReadiness(projectDir);
+  const mediaReadiness = useMediaReadiness(projectDir);
   const playing = useEditorStore((state) => state.playing);
   const setPlaying = useEditorStore((state) => state.setPlaying);
   const togglePlaying = useEditorStore((state) => state.togglePlaying);
@@ -64,6 +70,7 @@ export function AssetPreview({ mediaId, fullscreen, onToggleFullscreen }: { read
   const source = selectedPreviewSource(project, mediaId, null, projectDir);
   const asset = project.media.find((media) => media.id === mediaId);
   const elementRef = useRef<HTMLMediaElement | null>(null);
+  const lastElementRef = useRef<HTMLMediaElement | null>(null);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const failed = Boolean(source?.previewUrl) && failedUrl === source?.previewUrl;
   const [position, setPosition] = useState(() => ({ currentSeconds: 0, durationSeconds: parsePreviewDurationLabel(source?.durationLabel) }));
@@ -71,28 +78,58 @@ export function AssetPreview({ mediaId, fullscreen, onToggleFullscreen }: { read
   const canSeek = canPlay && position.durationSeconds > 0;
   const stepSeconds = sourcePreviewStepSeconds(source);
 
+  const desiredPlayingRef = useRef(playing);
+  desiredPlayingRef.current = playing;
+  const positionRef = useRef(position.currentSeconds);
+  const sourceUrlRef = useRef(source?.previewUrl);
+  const restoringRef = useRef(false);
+  if (sourceUrlRef.current !== source?.previewUrl) {
+    sourceUrlRef.current = source?.previewUrl;
+    restoringRef.current = true;
+  }
+
   function syncPosition() {
+    if (restoringRef.current) return;
     const element = elementRef.current;
+    positionRef.current = element && Number.isFinite(element.currentTime) ? Math.max(0, element.currentTime) : 0;
     setPosition({
       currentSeconds: element && Number.isFinite(element.currentTime) ? Math.max(0, element.currentTime) : 0,
       durationSeconds: mediaElementDurationSeconds(element, source),
     });
   }
 
-  useEffect(() => {
+  function synchronizePlayback() {
     const element = elementRef.current;
     if (!playing) {
       if (element && !element.paused) element.pause();
       return;
     }
     if (!canPlay || !element) {
-      setPlaying(false);
+      if (mediaReadiness.status !== "loading") setPlaying(false);
       return;
     }
-    if (element.paused) void element.play().catch(() => setPlaying(false));
-  }, [canPlay, playing, setPlaying]);
+    const url = source?.previewUrl;
+    if (element.paused) void element.play().then(() => {
+      if (!desiredPlayingRef.current || !element.isConnected) element.pause();
+    }).catch(() => {
+      if (sourceUrlRef.current === url && desiredPlayingRef.current) setPlaying(false);
+    });
+  }
 
-  useEffect(() => () => elementRef.current?.pause(), []);
+  useEffect(synchronizePlayback, [canPlay, playing, setPlaying, source?.previewUrl, mediaReadiness.status]);
+
+  function loadedMetadata() {
+    const element = elementRef.current;
+    if (element && restoringRef.current) {
+      element.currentTime = positionRef.current;
+      restoringRef.current = false;
+    }
+    syncPosition();
+    synchronizePlayback();
+  }
+
+  if (elementRef.current) lastElementRef.current = elementRef.current;
+  useEffect(() => () => { desiredPlayingRef.current = false; const element = elementRef.current ?? lastElementRef.current; if (element && !element.paused) element.pause(); }, []);
 
   function step(direction: -1 | 1) {
     const element = elementRef.current;
@@ -126,8 +163,9 @@ export function AssetPreview({ mediaId, fullscreen, onToggleFullscreen }: { read
           failed={failed}
           elementRef={elementRef}
           onTimeChange={syncPosition}
+          onLoadedMetadata={loadedMetadata}
           onPlay={() => setPlaying(true)}
-          onStop={() => setPlaying(false)}
+          onStop={() => { if (!restoringRef.current) setPlaying(false); }}
           onError={() => {
             setFailedUrl(source.previewUrl ?? null);
             if (source.previewUrl) refreshRemoteMediaUrl(source.previewUrl);
@@ -164,13 +202,14 @@ interface SourceViewerProps {
   readonly failed: boolean;
   readonly elementRef: { current: HTMLMediaElement | null };
   readonly onTimeChange: () => void;
+  readonly onLoadedMetadata: () => void;
   readonly onPlay: () => void;
   readonly onStop: () => void;
   readonly onError: () => void;
   readonly onRetry: () => void;
 }
 
-function SourceViewer({ source, failed, elementRef, onTimeChange, onPlay, onStop, onError, onRetry }: SourceViewerProps) {
+function SourceViewer({ source, failed, elementRef, onTimeChange, onLoadedMetadata, onPlay, onStop, onError, onRetry }: SourceViewerProps) {
   if (failed) {
     return (
       <div role="alert" className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center text-[13px] text-foreground">
@@ -187,7 +226,7 @@ function SourceViewer({ source, failed, elementRef, onTimeChange, onPlay, onStop
   }
   const mediaEvents = {
     onDurationChange: onTimeChange,
-    onLoadedMetadata: onTimeChange,
+    onLoadedMetadata,
     onTimeUpdate: onTimeChange,
     onPlay,
     onPause: onStop,
@@ -213,12 +252,11 @@ function SourceViewer({ source, failed, elementRef, onTimeChange, onPlay, onStop
   }
   if (url && (source.kind === "video" || source.kind === "generated")) {
     return (
-      // Muted like the timeline video layers; the asset's sound is not previewed here.
+      // Source playback includes its own sound; timeline sound uses separate audio layers.
       <video
         ref={(element) => void (elementRef.current = element)}
         aria-label={`Video preview ${source.label}`}
         className="absolute inset-0 h-full w-full object-contain"
-        muted
         playsInline
         preload="metadata"
         src={url}

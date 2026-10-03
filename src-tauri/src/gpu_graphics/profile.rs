@@ -361,7 +361,7 @@ fn shadertoy_template(profile_id: GpuVisualProfileId) -> Option<ShadertoyProfile
         })
 }
 
-fn shadertoy_fragment_source(fragment_body: &str) -> String {
+pub(crate) fn shadertoy_fragment_source(fragment_body: &str) -> String {
     format!(
         "{}\n\n{}",
         shared_shader_utils().trim(),

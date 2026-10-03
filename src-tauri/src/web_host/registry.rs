@@ -58,6 +58,7 @@ pub const WEB_HOST_DISPATCHED_OPERATIONS: &[&str] = &[
     "render_media_to_split_project_folder",
     "cache_timeline_filmstrip_in_split_project_folder",
     "capture_canonical_preview_frame_in_split_project_folder",
+    "prepare_project_preview",
     "load_agent_sessions_from_split_project_folder",
     "load_app_server_conversation_history_from_split_project_folder",
     "apply_agent_session_action_to_split_project_folder",

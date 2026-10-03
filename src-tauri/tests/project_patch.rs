@@ -558,6 +558,10 @@ fn imports_dotlottie_bundle_by_extension() {
     assert_eq!(result.imported.len(), 1);
     assert_eq!(result.imported[0].kind, MediaKind::Lottie);
     assert!(result.imported[0].relative_path.ends_with(".lottie"));
+    assert_eq!(result.imported[0].duration_seconds, 4.0);
+    assert_eq!(result.imported[0].fps, Some(24.0));
+    assert_eq!(result.imported[0].width, Some(128));
+    assert_eq!(result.imported[0].height, Some(72));
 }
 
 #[test]
@@ -587,67 +591,20 @@ fn import_media_rejects_plain_json_without_lottie_markers() {
 }
 
 fn minimal_dotlottie_archive(entries: &[&str]) -> Vec<u8> {
-    fn write_u16(bytes: &mut Vec<u8>, value: u16) {
-        bytes.extend_from_slice(&value.to_le_bytes());
-    }
-
-    fn write_u32(bytes: &mut Vec<u8>, value: u32) {
-        bytes.extend_from_slice(&value.to_le_bytes());
-    }
-
-    let mut archive = Vec::new();
-    let mut central_entries = Vec::new();
-
+    use std::io::Write;
+    let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     for entry in entries {
-        let name = entry.as_bytes();
-        let local_offset = archive.len() as u32;
-        archive.extend_from_slice(b"PK\x03\x04");
-        write_u16(&mut archive, 20);
-        write_u16(&mut archive, 0);
-        write_u16(&mut archive, 0);
-        write_u16(&mut archive, 0);
-        write_u16(&mut archive, 0);
-        write_u32(&mut archive, 0);
-        write_u32(&mut archive, 0);
-        write_u32(&mut archive, 0);
-        write_u16(&mut archive, name.len() as u16);
-        write_u16(&mut archive, 0);
-        archive.extend_from_slice(name);
-        central_entries.push((local_offset, name.to_vec()));
+        archive
+            .start_file(*entry, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        let bytes = if *entry == "manifest.json" {
+            br#"{"version":"1.0","animations":[{"id":"anim"}]}"#.as_slice()
+        } else {
+            include_bytes!("fixtures/transitions/lottie-colour-steps.json").as_slice()
+        };
+        archive.write_all(bytes).unwrap();
     }
-
-    let central_offset = archive.len() as u32;
-    for (local_offset, name) in &central_entries {
-        archive.extend_from_slice(b"PK\x01\x02");
-        write_u16(&mut archive, 20);
-        write_u16(&mut archive, 20);
-        write_u16(&mut archive, 0);
-        write_u16(&mut archive, 0);
-        write_u16(&mut archive, 0);
-        write_u16(&mut archive, 0);
-        write_u32(&mut archive, 0);
-        write_u32(&mut archive, 0);
-        write_u32(&mut archive, 0);
-        write_u16(&mut archive, name.len() as u16);
-        write_u16(&mut archive, 0);
-        write_u16(&mut archive, 0);
-        write_u16(&mut archive, 0);
-        write_u16(&mut archive, 0);
-        write_u32(&mut archive, 0);
-        write_u32(&mut archive, *local_offset);
-        archive.extend_from_slice(name);
-    }
-
-    let central_size = archive.len() as u32 - central_offset;
-    archive.extend_from_slice(b"PK\x05\x06");
-    write_u16(&mut archive, 0);
-    write_u16(&mut archive, 0);
-    write_u16(&mut archive, central_entries.len() as u16);
-    write_u16(&mut archive, central_entries.len() as u16);
-    write_u32(&mut archive, central_size);
-    write_u32(&mut archive, central_offset);
-    write_u16(&mut archive, 0);
-    archive
+    archive.finish().unwrap().into_inner()
 }
 
 #[test]

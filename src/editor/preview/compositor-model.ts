@@ -19,6 +19,7 @@ export interface CompositorModelInput {
   readonly canonicalFrameCount: number;
   /** Audio layers of the ready prepared project with their preview URLs; reversed audio plays these. */
   readonly preparedAudioLayers: readonly CompositorAudioLayer[];
+  readonly mediaLoading?: boolean | undefined;
 }
 
 interface CompositorAudioLayer {
@@ -36,6 +37,7 @@ interface CompositorTransitionSolid {
 
 export interface CompositorModel {
   readonly visibleMediaLayers: readonly { readonly layer: TimelinePreviewLayer; readonly sourceUrl: string }[];
+  readonly visibleOverlayLayers: TimelinePreviewFrame["overlayLayers"];
   readonly transitionSolids: readonly CompositorTransitionSolid[];
   readonly visibleAudioLayers: readonly CompositorAudioLayer[];
   readonly issues: readonly string[];
@@ -86,15 +88,20 @@ function emptyStateCopy(missingCount: number, awaitingCount: number, canonical: 
 /** Which layers the DOM compositor draws, and the issue, retry and empty-state copy for the frame. */
 export function buildCompositorModel(input: CompositorModelInput): CompositorModel {
   const { frame, mediaPreviewUrls, failedLayerIds, canonical, coverageItemIds } = input;
-  const unavailableLayers = frame.layers.filter((layer) => !mediaPreviewUrls[layer.mediaId]);
+  const unavailableLayers = input.mediaLoading ? [] : frame.layers.filter((layer) => !mediaPreviewUrls[layer.mediaId]);
   const canonicalReady = canonical?.status === "ready";
+  const templateIds = new Set(frame.canonicalTemplateItemIds ?? []);
+  const visibleOverlayLayers = frame.overlayLayers.filter((layer) =>
+    !(canonical && templateIds.has(layer.itemId)) && !(canonicalReady && coverageItemIds.has(layer.itemId)));
+  const awaitingTemplateIds = canonical && !canonicalReady ? [...templateIds] : [];
+  const missingTemplateIds = canonicalReady && !input.mediaLoading ? [...templateIds].filter((id) => !coverageItemIds.has(id)) : [];
   // Media elements can't play backwards: reversed audio plays its prepared intermediate, else stays silent.
   const preparedAudioFor = (layer: TimelinePreviewAudioLayer) =>
     canonicalReady ? input.preparedAudioLayers.find((prepared) => prepared.layer.itemId === layer.itemId) : undefined;
   const reversedAudioLayers = frame.audioLayers.filter((layer) => layer.canonicalPreparationRequired);
   const awaitingReversedAudio = canonicalReady ? [] : reversedAudioLayers;
-  const missingReversedAudio = canonicalReady ? reversedAudioLayers.filter((layer) => !preparedAudioFor(layer)) : [];
-  const unavailableAudioLayers = frame.audioLayers.filter((layer) => !layer.canonicalPreparationRequired && !mediaPreviewUrls[layer.mediaId]);
+  const missingReversedAudio = canonicalReady && !input.mediaLoading ? reversedAudioLayers.filter((layer) => !preparedAudioFor(layer)) : [];
+  const unavailableAudioLayers = input.mediaLoading ? [] : frame.audioLayers.filter((layer) => !layer.canonicalPreparationRequired && !mediaPreviewUrls[layer.mediaId]);
   const visibleMediaLayers = frame.layers.flatMap((layer) => {
     // Any canonical state hides layers that need preparation instead of approximating them, and
     // ready prepared frames stand in for the layers they cover (such as a flattened transition's clips).
@@ -125,20 +132,23 @@ export function buildCompositorModel(input: CompositorModelInput): CompositorMod
   const awaitingCanonicalLayers =
     canonical && canonical.status !== "ready" ? frame.layers.filter((layer) => layer.canonicalPreparationRequired) : [];
   const missingCanonicalLayers =
-    canonical?.status === "ready"
+    canonical?.status === "ready" && !input.mediaLoading
       ? frame.layers.filter((layer) => layer.canonicalPreparationRequired && !coverageItemIds.has(layer.itemId))
       : [];
   const failedLayerCount = failedLayers.length + failedAudioLayers.length;
-  const awaitingPreparation = awaitingCanonicalLayers.length > 0 || awaitingReversedAudio.length > 0;
+  const awaitingPreparation = awaitingCanonicalLayers.length > 0 || awaitingReversedAudio.length > 0 || awaitingTemplateIds.length > 0;
   const failedPreparationIssue = canonical?.status === "failed" ? canonical.message || failedCanonicalIssue : null;
   const preparationIssues = failedPreparationIssue
     ? awaitingPreparation ? [failedPreparationIssue] : []
-    : [...(awaitingCanonicalLayers.length > 0 ? [pendingCanonicalIssue] : []), ...(awaitingReversedAudio.length > 0 ? [pendingReversedAudioIssue] : [])];
+    : [...(awaitingCanonicalLayers.length > 0 ? [pendingCanonicalIssue] : []),
+      ...(awaitingTemplateIds.length > 0 ? ["Preparing animated graphics preview frames."] : []),
+      ...(awaitingReversedAudio.length > 0 ? [pendingReversedAudioIssue] : [])];
 
   const issues = [
     ...frame.issues,
     ...preparationIssues,
     ...missingCanonicalLayers.map((layer) => `Prepared frame missing for timeline item ${layer.itemId}. Rebuild the canonical preview.`),
+    ...missingTemplateIds.map((id) => `Prepared frame missing for timeline item ${id}. Rebuild the canonical preview.`),
     ...missingReversedAudio.map((layer) => `Prepared audio missing for timeline audio item ${layer.itemId}. Rebuild the canonical preview.`),
     ...unavailableLayers.map((layer) => `Timeline item ${layer.itemId} has no local preview URL.`),
     ...unavailableAudioLayers.map((layer) => `Timeline audio item ${layer.itemId} has no local preview URL.`),
@@ -150,20 +160,21 @@ export function buildCompositorModel(input: CompositorModelInput): CompositorMod
       ? "Preview failed"
       : awaitingPreparation && canonical?.status === "pending"
         ? "Preparing preview"
-        : missingCanonicalLayers.length > 0
+        : missingCanonicalLayers.length > 0 || missingTemplateIds.length > 0
           ? "Prepared frame missing"
           : "Preview unavailable";
   const preparationFailed = awaitingPreparation && canonical?.status === "failed" && canonical.message !== noProjectFolderMessage;
   const retryReloadsLayers = failedLayerCount > 0;
-  const retryPreparesCanonical = missingCanonicalLayers.length > 0 || missingReversedAudio.length > 0 || preparationFailed;
+  const retryPreparesCanonical = missingCanonicalLayers.length > 0 || missingTemplateIds.length > 0 || missingReversedAudio.length > 0 || preparationFailed;
   const retryVisible = retryReloadsLayers || retryPreparesCanonical;
 
   const firstProblem = failedLayers[0] ?? failedAudioLayers[0] ?? missingCanonicalLayers[0] ?? missingReversedAudio[0] ?? unavailableLayers[0] ?? unavailableAudioLayers[0];
   const hasVisiblePreview =
-    visibleMediaLayers.length > 0 || transitionSolids.length > 0 || frame.overlayLayers.length > 0 || input.canonicalFrameCount > 0;
+    visibleMediaLayers.length > 0 || transitionSolids.length > 0 || visibleOverlayLayers.length > 0 || input.canonicalFrameCount > 0;
 
   return {
     visibleMediaLayers,
+    visibleOverlayLayers,
     transitionSolids,
     visibleAudioLayers,
     issues,
@@ -172,7 +183,7 @@ export function buildCompositorModel(input: CompositorModelInput): CompositorMod
     retryReloadsLayers,
     retryPreparesCanonical,
     problemLayer: firstProblem ? { itemId: firstProblem.itemId, mediaId: firstProblem.mediaId } : unresolvedMediaItem(input),
-    emptyStateCopy: hasVisiblePreview ? null : emptyStateCopy(missingCanonicalLayers.length, awaitingCanonicalLayers.length, canonical),
+    emptyStateCopy: hasVisiblePreview ? null : canonicalReady && input.mediaLoading ? "Connecting prepared preview frames" : emptyStateCopy(missingCanonicalLayers.length + missingTemplateIds.length, awaitingCanonicalLayers.length + awaitingTemplateIds.length, canonical),
     failedLayerCount,
   };
 }

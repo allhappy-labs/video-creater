@@ -1,6 +1,112 @@
 use tempfile::tempdir;
 use video_creater_lib::web_host::upload::{UploadError, UploadStore};
 
+fn dotlottie_bytes(ids: &[&str]) -> Vec<u8> {
+    use std::io::Write;
+    let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    let options = zip::write::SimpleFileOptions::default();
+    archive.start_file("manifest.json", options).unwrap();
+    archive.write_all(&serde_json::to_vec(&serde_json::json!({"version":"1.0","animations": ids.iter().map(|id| serde_json::json!({"id":id})).collect::<Vec<_>>()})).unwrap()).unwrap();
+    for id in ids {
+        archive
+            .start_file(format!("animations/{id}.json"), options)
+            .unwrap();
+        archive
+            .write_all(include_bytes!(
+                "fixtures/transitions/lottie-colour-steps.json"
+            ))
+            .unwrap();
+    }
+    archive.finish().unwrap().into_inner()
+}
+
+#[test]
+fn single_animation_dotlottie_uploads_import_with_native_metadata() {
+    use video_creater_lib::project::{
+        import::import_media_files,
+        model::{MediaKind, VideoProject},
+    };
+    let root = tempdir().unwrap();
+    let store = UploadStore::new(root.path().join("uploads"), 16_384, 0).unwrap();
+    let bytes = dotlottie_bytes(&["colour"]);
+    let completed = store
+        .stage("animation.lottie", bytes.len() as u64, [bytes])
+        .expect("dotLottie upload");
+    assert_eq!(completed.media_type, "application/vnd.lottie");
+    let source = store.completed_path(&completed.upload_id).unwrap();
+    let project = VideoProject::new_empty(
+        "animation".into(),
+        "Preview".into(),
+        "2026-10-03T00:00:00Z".into(),
+    );
+    let result =
+        import_media_files(&root.path().join("project.palmier"), project, &[source]).unwrap();
+    assert_eq!(result.imported[0].kind, MediaKind::Lottie);
+    assert_eq!(result.imported[0].duration_seconds, 4.0);
+    assert_eq!(result.imported[0].width, Some(128));
+    assert_eq!(result.imported[0].height, Some(72));
+    assert_eq!(result.imported[0].fps, Some(24.0));
+}
+
+#[test]
+fn ambiguous_dotlottie_upload_requires_animation_selection() {
+    let root = tempdir().unwrap();
+    let store = UploadStore::new(root.path().to_path_buf(), 16_384, 0).unwrap();
+    let bytes = dotlottie_bytes(&["one", "two"]);
+    let error = store
+        .stage("multiple.lottie", bytes.len() as u64, [bytes])
+        .unwrap_err();
+    assert!(
+        format!("{error:?}").contains("AmbiguousAnimation"),
+        "{error:?}"
+    );
+    assert!(std::fs::read_dir(root.path()).unwrap().next().is_none());
+}
+
+#[test]
+fn native_dotlottie_import_rejects_multiple_animations_with_a_precise_error() {
+    use video_creater_lib::project::{import::import_media_files, model::VideoProject};
+    let root = tempdir().unwrap();
+    let source = root.path().join("multiple.lottie");
+    std::fs::write(&source, dotlottie_bytes(&["one", "two"])).unwrap();
+    let project = VideoProject::new_empty(
+        "animation".into(),
+        "Preview".into(),
+        "2026-10-03T00:00:00Z".into(),
+    );
+    let error =
+        import_media_files(&root.path().join("project.palmier"), project, &[source]).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("multiple animations require an explicit animationId"),
+        "{error}"
+    );
+}
+
+#[test]
+fn dotlottie_uploads_reject_unsafe_archives_using_renderer_validation() {
+    use std::io::Write;
+    let root = tempdir().unwrap();
+    let store = UploadStore::new(root.path().to_path_buf(), 16_384, 0).unwrap();
+    for name in ["../private.json", "animations/anim.json"] {
+        let mut archive = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default();
+        archive.start_file("manifest.json", options).unwrap();
+        archive
+            .write_all(br#"{"animations":[{"id":"anim"}]}"#)
+            .unwrap();
+        archive.start_file(name, options).unwrap();
+        archive.write_all(br#"{"fr":24,"op":96,"w":128,"h":72,"layers":[],"assets":[{"p":"https://private.invalid/image.png"}]}"#).unwrap();
+        let bytes = archive.finish().unwrap().into_inner();
+        assert_eq!(
+            store.stage("unsafe.lottie", bytes.len() as u64, [bytes]),
+            Err(UploadError::UnsupportedMedia)
+        );
+        assert!(std::fs::read_dir(root.path()).unwrap().next().is_none());
+    }
+}
+
 #[test]
 fn concurrent_uploads_are_reserved_and_bounded() {
     let root = tempfile::tempdir().unwrap();
@@ -37,6 +143,57 @@ fn upload_uses_host_ids_validates_bytes_and_persists_hash_metadata() {
         .completed_path(&completed.upload_id)
         .unwrap()
         .is_file());
+}
+
+#[test]
+fn valid_lottie_json_uploads_import_with_animation_metadata() {
+    use std::collections::BTreeMap;
+    use video_creater_lib::project::{
+        import::import_media_files_with_names,
+        model::{MediaKind, VideoProject},
+    };
+    let root = tempdir().unwrap();
+    let store = UploadStore::new(root.path().join("uploads"), 16_384, 0).unwrap();
+    let bytes = include_bytes!("fixtures/transitions/lottie-colour-steps.json");
+    let completed = store
+        .stage("animation.json", bytes.len() as u64, [bytes.as_slice()])
+        .expect("valid Lottie upload");
+    assert_eq!(completed.media_type, "application/vnd.lottie+json");
+    let source = store.completed_path(&completed.upload_id).unwrap();
+    let project = VideoProject::new_empty(
+        "animation".into(),
+        "Preview".into(),
+        "2026-10-03T00:00:00Z".into(),
+    );
+    let imported = import_media_files_with_names(
+        &root.path().join("project.palmier"),
+        project,
+        std::slice::from_ref(&source),
+        &BTreeMap::from([(source.clone(), completed.display_name)]),
+    )
+    .unwrap();
+    assert_eq!(imported.imported[0].kind, MediaKind::Lottie);
+    assert_eq!(imported.imported[0].duration_seconds, 4.0);
+    assert_eq!(imported.imported[0].width, Some(128));
+    assert_eq!(imported.imported[0].height, Some(72));
+    assert_eq!(imported.imported[0].fps, Some(24.0));
+}
+
+#[test]
+fn arbitrary_and_invalid_lottie_json_uploads_are_rejected_without_partial_files() {
+    let root = tempdir().unwrap();
+    let store = UploadStore::new(root.path().to_path_buf(), 16_384, 0).unwrap();
+    for bytes in [
+        br#"{"private":"notes"}"#.as_slice(),
+        br#"{"fr":24,"op":96,"layers":[]}"#.as_slice(),
+        br#"{"fr":0,"op":96,"w":128,"h":72,"layers":[]}"#.as_slice(),
+    ] {
+        assert_eq!(
+            store.stage("animation.json", bytes.len() as u64, [bytes]),
+            Err(UploadError::UnsupportedMedia)
+        );
+        assert!(std::fs::read_dir(root.path()).unwrap().next().is_none());
+    }
 }
 
 #[test]

@@ -26,6 +26,7 @@ pub enum UploadError {
     SizeMismatch,
     InsufficientSpace,
     UnsupportedMedia,
+    AmbiguousAnimation,
     InvalidId,
     Io,
     Busy,
@@ -224,10 +225,31 @@ impl UploadWriter {
         if self.size != self.declared_size {
             return Err(UploadError::SizeMismatch);
         }
-        let media_type = media_type(&self.signature).ok_or(UploadError::UnsupportedMedia)?;
         let file = self.file.take().ok_or(UploadError::Io)?;
         file.sync_all().map_err(|_| UploadError::Io)?;
         drop(file);
+        let media_type = match media_type(&self.signature) {
+            Some(media_type) => media_type,
+            None if self.size <= 16 * 1024 * 1024 => {
+                let bytes = crate::project::import::read_lottie_source_bytes(&self.partial)
+                    .map_err(|_| UploadError::UnsupportedMedia)?;
+                if bytes.starts_with(b"PK\x03\x04") {
+                    crate::project::import::valid_dotlottie_bytes(&bytes).map_err(|message| {
+                        if message.contains("multiple animations") {
+                            UploadError::AmbiguousAnimation
+                        } else {
+                            UploadError::UnsupportedMedia
+                        }
+                    })?;
+                    "application/vnd.lottie"
+                } else if crate::project::import::valid_lottie_json_bytes(&bytes) {
+                    "application/vnd.lottie+json"
+                } else {
+                    return Err(UploadError::UnsupportedMedia);
+                }
+            }
+            None => return Err(UploadError::UnsupportedMedia),
+        };
         let extension = media_extension(media_type).ok_or(UploadError::UnsupportedMedia)?;
         let completed_path = self.root.join(format!("{}.{}", self.upload_id, extension));
         fs::rename(&self.partial, &completed_path).map_err(|_| UploadError::Io)?;
@@ -323,6 +345,9 @@ fn media_extension(media_type: &str) -> Option<&'static str> {
         "image/png" => Some("png"),
         "image/jpeg" => Some("jpg"),
         "audio/wav" => Some("wav"),
+        // Upload metadata already occupies {id}.json; animation data needs a distinct name.
+        "application/vnd.lottie+json" => Some("lottie.json"),
+        "application/vnd.lottie" => Some("lottie"),
         _ => None,
     }
 }

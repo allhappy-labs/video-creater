@@ -17,6 +17,11 @@ export interface CanonicalFrameLayer {
   readonly frameUrl: string;
 }
 
+/** Every source layer stays below preview chrome inside the isolated canvas. */
+export function previewLayerStackingOrder(frame: TimelinePreviewFrame): Readonly<Record<string, number>> {
+  return Object.fromEntries(frame.layers.map((layer, index) => [layer.itemId, -2 * frame.layers.length + 2 * index + 1]));
+}
+
 /** What the compositor needs to know about canonical preparation for the current project. */
 export type CompositorCanonicalState =
   | { readonly status: "pending" }

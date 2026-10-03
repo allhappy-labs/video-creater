@@ -153,6 +153,34 @@ describe("PreviewPanel composition", () => {
     expect(stubs.pendingFrameCount()).toBe(0);
   });
 
+  it("holds the playhead while remote video is buffering and resumes without skipping", () => {
+    let ready = 0;
+    vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockImplementation(() => ready);
+    const { store } = renderPreview();
+    const media = Array.from(viewport().querySelectorAll<HTMLMediaElement>("video, audio"));
+    act(() => store.getState().togglePlaying());
+    stubs.runFrame(1000);
+    stubs.runFrame(4000);
+    expect(store.getState().playheadSeconds).toBe(0);
+    expect(store.getState().playing).toBe(true);
+    expect(media.map((element) => element.paused)).toEqual([true, true]);
+    ready = 4;
+    stubs.runFrame(5000);
+    expect(media.map((element) => element.paused)).toEqual([false, false]);
+    stubs.runFrame(5500);
+    expect(store.getState().playheadSeconds).toBeCloseTo(0.5, 6);
+    ready = 2; // A decoded current frame without future data is a mid-playback stall.
+    stubs.runFrame(6000);
+    stubs.runFrame(9000);
+    expect(store.getState().playheadSeconds).toBeCloseTo(0.5, 6);
+    expect(media.map((element) => element.paused)).toEqual([true, true]);
+    ready = 4;
+    stubs.runFrame(10000);
+    expect(media.map((element) => element.paused)).toEqual([false, false]);
+    stubs.runFrame(10500);
+    expect(store.getState().playheadSeconds).toBeCloseTo(1, 6);
+  });
+
   it("marks a failed layer and reloads it on Retry preview", () => {
     renderPreview();
     fireEvent.error(within(viewport()).getByLabelText("Timeline video Opening clip"));
@@ -164,6 +192,34 @@ describe("PreviewPanel composition", () => {
     expect(within(viewport()).getByLabelText("Timeline video Opening clip")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
+
+  for (const interruption of ["pause", "another stall"] as const) {
+    it(`does not restart media when a buffering resume settles after ${interruption}`, async () => {
+      let ready = 4;
+      vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockImplementation(() => ready);
+      const { store } = renderPreview();
+      const media = Array.from(viewport().querySelectorAll<HTMLMediaElement>("video, audio"));
+      act(() => store.getState().setPlaying(true));
+      await flushPromises();
+      ready = 2;
+      stubs.runFrame(1000);
+      const start = stubs.play.getMockImplementation()!;
+      const settle: (() => void)[] = [];
+      stubs.play.mockImplementation(function (this: HTMLMediaElement) {
+        return new Promise<void>((resolve) => {
+          settle.push(() => { void start.call(this); resolve(); });
+        });
+      });
+      ready = 4;
+      stubs.runFrame(2000);
+      expect(settle).toHaveLength(2);
+      if (interruption === "pause") act(() => store.getState().setPlaying(false));
+      else { ready = 2; stubs.runFrame(2100); }
+      await act(async () => { settle.forEach((complete) => complete()); });
+      expect(media.map((element) => element.paused)).toEqual([true, true]);
+      expect(store.getState().playing).toBe(interruption !== "pause");
+    });
+  }
 
   it("opens the failed layer's media in asset preview from Open source", () => {
     const { store } = renderPreview();
@@ -259,6 +315,33 @@ describe("PreviewPanel transitions", () => {
 });
 
 describe("PreviewPanel canonical preparation", () => {
+  it("holds a shader-only timeline while its first frames are being prepared", () => {
+    const project = fixtureProject();
+    const track = project.timeline.tracks.find((entry) => entry.kind === "video")!;
+    project.timeline.tracks = [{ ...track, kind: "hyperframe_scene", items: [{ ...track.items[0]!, kind: "hyperframe_scene", source: { type: "generated", artifactId: "shader-preview" }, properties: { shaderBackgroundTemplateId: "octagrams" } }] }];
+    backendRequest.mockReturnValue(new Promise(() => {}));
+    const { store } = renderPreview(project);
+    act(() => store.getState().setPlaying(true));
+    stubs.runFrame(1000);
+    stubs.runFrame(4000);
+    expect(store.getState().playheadSeconds).toBe(0);
+    expect(store.getState().playing).toBe(true);
+  });
+  it("keeps an upper source image above a lower prepared frame", async () => {
+    const project = canonicalProject();
+    const videoTrack = project.timeline.tracks.find((track) => track.kind === "video");
+    if (!videoTrack?.items[0]) throw new Error("fixture video track");
+    project.media.push({ id: "upper-image", name: "Upper image", kind: "image", relativePath: "media/upper.png", durationSeconds: 4, width: 1920, height: 1080, fps: null });
+    project.timeline.tracks.splice(1, 0, { ...videoTrack, id: "upper", name: "Upper", items: [{ ...videoTrack.items[0], id: "upper-item", kind: "image_clip", label: "Upper image", source: { type: "media", mediaId: "upper-image" }, properties: {} }] });
+    backendRequest.mockResolvedValue({ project: structuredClone(project), reports: [], frameSequences: [{ itemId: "item-1", preparedMediaId: "media-1", startSeconds: 0, durationSeconds: 4, fps: 2, framePaths: ["f/0.png"] }] } satisfies PreparedProjectPreview);
+    renderPreview(project);
+    act(() => vi.advanceTimersByTime(400));
+    await flushPromises();
+    const prepared = screen.getByTestId("canonical-prepared-preview-frame").closest<HTMLElement>("[data-testid='preview-layer']")!;
+    const upper = screen.getByAltText("Timeline image Upper image").closest<HTMLElement>("[data-testid='preview-layer']")!;
+    expect(Number(upper.style.zIndex)).toBeGreaterThan(Number(prepared.style.zIndex));
+    expect(screen.getByTestId("preview-canvas")).toHaveClass("isolate");
+  });
   beforeEach(() => {
     window.localStorage.clear();
     backendRequest.mockReset();

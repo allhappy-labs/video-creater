@@ -15,7 +15,7 @@ export type CanonicalPreparation =
   | { readonly sourceProject: VideoProject; readonly status: "failed"; readonly message: string }
   | { readonly sourceProject: VideoProject; readonly status: "unavailable" };
 
-const playableAssetKinds: ReadonlySet<string> = new Set(["video", "generated", "audio"]);
+const playableAssetKinds: ReadonlySet<string> = new Set(["video", "generated", "audio", "lottie"]);
 
 export interface PlaybackSlice {
   readonly playheadSeconds: number;

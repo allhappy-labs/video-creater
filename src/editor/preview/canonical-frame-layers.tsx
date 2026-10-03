@@ -13,14 +13,15 @@ interface CanonicalFrameLayersProps {
   /** Render size for position offsets. */
   readonly outputSize: PreviewOutputSize;
   readonly onRetry: () => void;
-  readonly onOpenSource: (itemId: string, mediaId: string) => void;
+  readonly onOpenSource?: ((itemId: string, mediaId: string) => void) | undefined;
+  readonly layerStackingOrder?: Readonly<Record<string, number>> | undefined;
 }
 
 /**
  * Canonical prepared frames drawn over the DOM media layers (below captions), with frame
  * preloading around the playhead, the "Canonical ready" badge and the frame load failure message.
  */
-export function CanonicalFrameLayers({ frameLayers, sequences, seconds, outputSize, onRetry, onOpenSource }: CanonicalFrameLayersProps) {
+export function CanonicalFrameLayers({ frameLayers, sequences, seconds, outputSize, onRetry, onOpenSource, layerStackingOrder }: CanonicalFrameLayersProps) {
   const preloaderRef = useRef<CanonicalFramePreloader | null>(null);
   const [failedFrameUrl, setFailedFrameUrl] = useState<string | null>(null);
   // A failure only counts while an active layer still shows that frame.
@@ -44,7 +45,7 @@ export function CanonicalFrameLayers({ frameLayers, sequences, seconds, outputSi
     <>
       {frameLayers.map(({ layer, frameUrl }) =>
         frameUrl === failedFrameUrl ? null : (
-          <PreviewLayerFrame key={layer.itemId} layer={layer} className="pointer-events-none z-10">
+          <PreviewLayerFrame key={layer.itemId} layer={layer} className="pointer-events-none" stackingIndex={layerStackingOrder?.[layer.itemId]}>
             <img
               src={frameUrl}
               alt=""
@@ -77,7 +78,7 @@ export function CanonicalFrameLayers({ frameLayers, sequences, seconds, outputSi
             setFailedFrameUrl(null);
             if (!failedFrameUrl || !refreshRemoteMediaUrl(failedFrameUrl, true)) onRetry();
           }}
-          onOpenSource={() => onOpenSource(failedLayer.itemId, failedLayer.mediaId)}
+          onOpenSource={onOpenSource ? () => onOpenSource(failedLayer.itemId, failedLayer.mediaId) : undefined}
         />
       )}
     </>

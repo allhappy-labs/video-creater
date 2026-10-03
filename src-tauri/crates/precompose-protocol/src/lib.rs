@@ -5,6 +5,8 @@
 //! diagnostic text may be written to stdout because every non-empty line is a
 //! protocol record.
 
+pub mod archive;
+
 use serde::{Deserialize, Serialize};
 use std::fmt;
 

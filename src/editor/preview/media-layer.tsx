@@ -15,6 +15,7 @@ interface MediaLayerProps {
   /** Render size for position offsets. */
   readonly outputSize: PreviewOutputSize;
   readonly onLoadError: () => void;
+  readonly stackingIndex?: number | undefined;
 }
 
 /**
@@ -27,10 +28,12 @@ export function PreviewLayerFrame({
   layer,
   className,
   children,
+  stackingIndex,
 }: {
   readonly layer: Pick<TimelinePreviewLayer, "itemId" | "transition">;
   readonly className?: string;
   readonly children: ReactNode;
+  readonly stackingIndex?: number | undefined;
 }) {
   const { transition } = layer;
   return (
@@ -41,7 +44,7 @@ export function PreviewLayerFrame({
       data-transition-role={transition?.role}
       data-transition-progress={transition ? String(Math.round(transition.progress * 1000) / 1000) : undefined}
       className={cn("absolute inset-0", className)}
-      style={{ clipPath: transitionClipPath(transition) }}
+      style={{ clipPath: transitionClipPath(transition), zIndex: stackingIndex }}
     >
       {children}
     </div>
@@ -51,14 +54,14 @@ export function PreviewLayerFrame({
 /** One visual layer: an image, a Lottie placeholder, or a muted video that follows the playback clock. */
 export function PreviewMediaLayer(props: MediaLayerProps) {
   return (
-    <PreviewLayerFrame layer={props.layer}>
+    <PreviewLayerFrame layer={props.layer} stackingIndex={props.stackingIndex}>
       <MediaLayerContent {...props} />
     </PreviewLayerFrame>
   );
 }
 
 /** A dip transition's opaque solid; render parity needs pure black or white, not theme colors. */
-export function PreviewTransitionSolid({ transitionId, color }: { readonly transitionId: string; readonly color: "black" | "white" }) {
+export function PreviewTransitionSolid({ transitionId, color, stackingIndex }: { readonly transitionId: string; readonly color: "black" | "white"; readonly stackingIndex?: number | undefined }) {
   return (
     <div
       aria-hidden
@@ -66,6 +69,7 @@ export function PreviewTransitionSolid({ transitionId, color }: { readonly trans
       data-transition-id={transitionId}
       data-color={color}
       className={cn("absolute inset-0", color === "black" ? "bg-black" : "bg-white")}
+      style={{ zIndex: stackingIndex }}
     />
   );
 }

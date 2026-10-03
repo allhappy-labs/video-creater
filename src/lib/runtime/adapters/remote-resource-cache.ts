@@ -19,6 +19,8 @@ interface ProjectResources {
   fetcher: Fetcher;
   timer?: ReturnType<typeof setTimeout>;
   canonicalPaths?: Set<string>;
+  preparedScopes?: Map<string, Set<string>>;
+  preparedRevisions?: Map<string, number>;
   budgetError?: string;
 }
 
@@ -103,8 +105,9 @@ function trim(): void {
 }
 
 export async function cacheMediaTicketsForResult(projectId: string, result: unknown, csrfToken: string, fetcher: Fetcher): Promise<void> {
-  const relativePaths = [...collectRelativePaths(result)].sort();
-  const canonicalPaths = canonicalResourcePaths(result);
+  const preparedPreview = typeof result === "object" && result !== null && "frameSequences" in result;
+  const relativePaths = [...collectRelativePaths(preparedPreview ? { ...(result as Record<string, unknown>), frameSequences: undefined } : result)].sort();
+  const canonicalPaths = preparedPreview ? null : canonicalResourcePaths(result);
   if (!projectId || (relativePaths.length === 0 && !canonicalPaths)) return;
   let project = projects.get(projectId);
   if (!project) {
@@ -114,6 +117,7 @@ export async function cacheMediaTicketsForResult(projectId: string, result: unkn
   }
   project.csrfToken = csrfToken;
   project.fetcher = fetcher;
+  if (preparedPreview && !retainPreparedResources(project, result)) return;
   if (canonicalPaths) {
     for (const path of project.canonicalPaths ?? []) if (!canonicalPaths.has(path)) project.resources.delete(path);
     project.canonicalPaths = new Set([...canonicalPaths].slice(-maxResourcesPerProject));
@@ -125,7 +129,8 @@ export async function cacheMediaTicketsForResult(projectId: string, result: unkn
     let resource = project.resources.get(relativePath);
     if (!resource) {
       if (project.resources.size >= maxResourcesPerProject) {
-        const oldest = [...project.resources.entries()].find(([, entry]) => !entry.pending)?.[0];
+        const oldest = [...project.resources.entries()].find(([path, entry]) => !entry.pending && !project.canonicalPaths?.has(path))?.[0]
+          ?? [...project.resources.entries()].find(([, entry]) => !entry.pending)?.[0];
         if (oldest) project.resources.delete(oldest);
         else {
           project.budgetError = "Too many media previews are loading. Retry after they settle.";
@@ -195,6 +200,30 @@ export async function cacheMediaTicketsForResult(projectId: string, result: unkn
   await Promise.all(pending);
 }
 
+/** Mirrors Rust's bounded preparation scopes so retired files cannot poison a renewal batch. */
+function retainPreparedResources(project: ProjectResources, result: unknown): boolean {
+  const snapshot = result as { project?: { contentRevision?: number; timeline?: { tracks?: Array<{ id?: string; items?: Array<{ id?: string }> }> } } };
+  const source = snapshot.project?.timeline?.tracks?.find((track) => track.id === "source-preview");
+  const scope = source ? `source:${source.items?.[0]?.id ?? "source-preview"}` : "timeline";
+  const revisions = project.preparedRevisions ??= new Map();
+  const revision = snapshot.project?.contentRevision;
+  if (typeof revision === "number" && Number.isFinite(revision)) {
+    if (revision < (revisions.get(scope) ?? -1)) return false;
+    revisions.set(scope, revision);
+  }
+  const scopes = project.preparedScopes ??= new Map();
+  const previous = new Set([...scopes.values()].flatMap((paths) => [...paths]));
+  scopes.delete(scope);
+  scopes.set(scope, collectRelativePaths(result));
+  while ([...scopes.keys()].filter((key) => key.startsWith("source:")).length > 16) {
+    const oldest = [...scopes.keys()].find((key) => key.startsWith("source:"));
+    if (oldest) { scopes.delete(oldest); revisions.delete(oldest); }
+  }
+  const retained = new Set([...scopes.values()].flatMap((paths) => [...paths]));
+  for (const path of previous) if (!retained.has(path) && !project.canonicalPaths?.has(path)) project.resources.delete(path);
+  return true;
+}
+
 /** No filesystem path fallback or render-time exception when a ticket is pending or expired. */
 export function remoteResourceUrl(path: string): string {
   for (const [projectId, project] of projects) {
@@ -241,4 +270,11 @@ function canonicalResourcePaths(value: unknown): Set<string> | null {
   if (Array.isArray(record.media)) return collectRelativePaths(record);
   return typeof record.project === "object" && record.project !== null && Array.isArray((record.project as Record<string, unknown>).media)
     ? collectRelativePaths(record.project) : null;
+}
+
+/** Authorize just the frames around the viewer; native transports have no remote cache. */
+export async function ensureRemoteMediaPaths(projectId: string, paths: readonly string[]): Promise<void> {
+  const project = projects.get(projectId);
+  if (!project || paths.length === 0) return;
+  await cacheMediaTicketsForResult(projectId, paths.map((relativePath) => ({ relativePath })), remoteCsrfToken(project.csrfToken), project.fetcher);
 }

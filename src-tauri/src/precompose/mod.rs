@@ -8,6 +8,7 @@ pub(crate) mod compatibility;
 mod flatten;
 mod flatten_transitions;
 mod frame_source;
+mod graphics_template;
 mod intermediate;
 mod planner;
 mod reverse;
@@ -97,9 +98,14 @@ pub fn prepare_project_for_render_cancellable(
 ) -> PipelineResult<PreparedProject> {
     // Fail before any step decodes a reversed clip that cannot be reversed.
     reverse::reject_unreversible_items(project)?;
-    let tasks = plan_precomposition(project);
     let mut prepared = project.clone();
     let mut reports = Vec::new();
+    reports.extend(graphics_template::prepare_graphics_templates(
+        project_dir,
+        &mut prepared,
+        cancellation,
+    )?);
+    let tasks = plan_precomposition(&prepared);
     reports.extend(compatibility::prepare_compatibility_media(
         project_dir,
         &mut prepared,
@@ -1280,3 +1286,12 @@ mod tests {
         assert_eq!(intensity_at(2.0), 1.0);
     }
 }
+
+#[cfg(all(
+    test,
+    feature = "ges-render",
+    feature = "gpu-render",
+    feature = "graphics-render"
+))]
+#[path = "graphics_template_tests.rs"]
+mod graphics_template_tests;

@@ -19,6 +19,7 @@ use video_creater_lib::agent::{AgentBackendKind, AgentTurnTransport};
 use video_creater_lib::app_service::context::{ClientKind, RequestContext};
 use video_creater_lib::app_service::events::NoopEventSink;
 use video_creater_lib::app_service::operation::AuthorizationScope;
+use video_creater_lib::app_service::preview::PreparedPreviewCommandResult;
 use video_creater_lib::app_service::projects::ProjectService;
 use video_creater_lib::codex::app_server::{
     bundled_codex_app_server_command, codex_app_server_deadline,
@@ -68,9 +69,6 @@ use video_creater_lib::media_inspection::{
     sample_video_audio_window_metrics, sample_video_frame_metrics, AudioWindowMetrics,
     ImageMetrics, VideoInspectionReport,
 };
-use video_creater_lib::precompose::{
-    prepare_project_for_render, prepared_media_timeline_span, PrecomposeReport,
-};
 use video_creater_lib::project::action::{apply_project_action, ProjectAction};
 use video_creater_lib::project::command_queue::project_command_queue;
 use video_creater_lib::project::export_destination::ExportOutputRequest;
@@ -86,7 +84,7 @@ use video_creater_lib::project::model::{
     GeneratedAssetStatus, JobStatus, JobSummary, MediaAnalysisMoment, MediaAsset, MediaKind,
     MediaSilenceRange, ProjectRenderPreviewComparison, ProjectRenderPreviewComparisonFrame,
     ProjectRenderPreviewComparisonRequest, ProjectRenderReport, RenderSettings,
-    TemporalWorkflowStartRequest, TimelineSource, VideoProject,
+    TemporalWorkflowStartRequest, VideoProject,
 };
 use video_creater_lib::project::mutation::{
     acquire_split_project_artifact_lease, acquire_split_project_mutation_lease,
@@ -120,8 +118,8 @@ use video_creater_lib::render_pipeline::cancel::{
 };
 use video_creater_lib::render_pipeline::error::PipelineError;
 use video_creater_lib::render_pipeline::project_export::{
-    expand_project_nested_timelines_for_render, load_project_render_pipeline_report,
-    recover_interrupted_local_render_jobs_with_lease, render_media_export_to_split_project_folder,
+    load_project_render_pipeline_report, recover_interrupted_local_render_jobs_with_lease,
+    render_media_export_to_split_project_folder,
     render_prepared_preview_frame_to_split_project_folder,
     render_prepared_preview_frame_to_split_project_folder_with_lease,
     render_webm_to_split_project_folder_for_timeline as render_project_webm_to_split_project_folder_for_timeline,
@@ -674,25 +672,6 @@ struct MediaAnalysisCommandResult {
     write_report: ProjectWriteReport,
     moments: Vec<MediaAnalysisMoment>,
     silence_ranges: Vec<MediaSilenceRange>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PreparedPreviewCommandResult {
-    project: VideoProject,
-    reports: Vec<PrecomposeReport>,
-    frame_sequences: Vec<PreparedPreviewFrameSequence>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PreparedPreviewFrameSequence {
-    item_id: String,
-    prepared_media_id: String,
-    start_seconds: f64,
-    duration_seconds: f64,
-    fps: f64,
-    frame_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1958,9 +1937,19 @@ fn list_visual_effect_catalog() -> serde_json::Value {
 async fn prepare_project_preview(
     project_dir: String,
     project: VideoProject,
+    media_id: Option<String>,
 ) -> Result<PreparedPreviewCommandResult, String> {
     run_blocking_command("preview preparation", move || {
-        prepare_project_preview_blocking(project_dir, project)
+        if let Some(media_id) = media_id {
+            let project_dir = resolve_project_dir(&project_dir)?;
+            video_creater_lib::app_service::preview::prepare_project_preview(
+                &project_dir,
+                Some(project),
+                Some(&media_id),
+            )
+        } else {
+            prepare_project_preview_blocking(project_dir, project)
+        }
     })
     .await
 }
@@ -1970,91 +1959,11 @@ fn prepare_project_preview_blocking(
     project: VideoProject,
 ) -> Result<PreparedPreviewCommandResult, String> {
     let project_dir = resolve_project_dir(&project_dir)?;
-    // Preparation owns the project's derived files for its whole run, so it cannot race a
-    // render's precompose publication; the project lease covers its read alone, so a
-    // render-length preparation never keeps an editor write waiting.
-    let _artifacts = acquire_split_project_artifact_lease(&project_dir)?;
-    let project = {
-        let _project_lease = acquire_split_project_mutation_lease(&project_dir)?;
-        if storage::project_file_path(&project_dir).exists() {
-            load_split_project(&project_dir).map_err(|error| error.to_string())?
-        } else {
-            project
-        }
-    };
-    let expanded =
-        expand_project_nested_timelines_for_render(&project).map_err(pipeline_errors_to_string)?;
-    let prepared =
-        prepare_project_for_render(&project_dir, &expanded).map_err(pipeline_errors_to_string)?;
-    let mut frame_sequences = Vec::new();
-    for track in &prepared.project.timeline.tracks {
-        for item in &track.items {
-            let TimelineSource::Media { media_id } = &item.source else {
-                continue;
-            };
-            let Some(report) = prepared
-                .reports
-                .iter()
-                .find(|report| report.prepared_media_id == *media_id)
-            else {
-                continue;
-            };
-            if !report.has_frame_sequence() {
-                continue;
-            }
-            let frames_dir = Path::new(&report.intermediate)
-                .parent()
-                .unwrap_or_else(|| Path::new(""))
-                .join("frames");
-            let absolute_frames_dir = project_dir.join(&frames_dir);
-            let mut frame_paths = fs::read_dir(&absolute_frames_dir)
-                .map_err(|error| format!("prepared preview frames could not be listed: {error}"))?
-                .filter_map(Result::ok)
-                .map(|entry| entry.path())
-                .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("png"))
-                .collect::<Vec<_>>();
-            frame_paths.sort();
-            let frame_paths = frame_paths
-                .into_iter()
-                .map(|path| {
-                    path.strip_prefix(&project_dir)
-                        .map(|relative| relative.to_string_lossy().to_string())
-                        .map_err(|_| {
-                            "prepared preview frame escaped the project folder".to_string()
-                        })
-                })
-                .collect::<Result<Vec<_>, _>>()?;
-            if frame_paths.is_empty() {
-                return Err(format!(
-                    "prepared preview sequence for {} contains no PNG frames",
-                    item.id
-                ));
-            }
-            let fps = prepared
-                .project
-                .media
-                .iter()
-                .find(|media| media.id == *media_id)
-                .and_then(|media| media.fps)
-                .unwrap_or(prepared.project.render_settings.fps);
-            // Prepared frames can begin with transition handles before the clip.
-            let (start_seconds, duration_seconds) =
-                prepared_media_timeline_span(&prepared.project, item);
-            frame_sequences.push(PreparedPreviewFrameSequence {
-                item_id: item.id.clone(),
-                prepared_media_id: media_id.clone(),
-                start_seconds,
-                duration_seconds,
-                fps,
-                frame_paths,
-            });
-        }
-    }
-    Ok(PreparedPreviewCommandResult {
-        project: prepared.project,
-        reports: prepared.reports,
-        frame_sequences,
-    })
+    video_creater_lib::app_service::preview::prepare_project_preview(
+        &project_dir,
+        Some(project),
+        None,
+    )
 }
 
 #[tauri::command]
@@ -2066,13 +1975,18 @@ async fn capture_canonical_preview_frame_in_split_project_folder(
 ) -> Result<PreparedPreviewFrameResult, String> {
     run_blocking_command("canonical preview frame", move || {
         let project_dir = resolve_project_dir(&project_dir)?;
-        render_prepared_preview_frame_to_split_project_folder(
+        let result = render_prepared_preview_frame_to_split_project_folder(
             &project_dir,
             playhead_seconds,
             &job_id,
             &updated_at,
         )
-        .map_err(pipeline_errors_to_string)
+        .map_err(pipeline_errors_to_string)?;
+        video_creater_lib::app_service::preview::record_captured_preview_resource(
+            &project_dir,
+            &result,
+        )?;
+        Ok(result)
     })
     .await
 }

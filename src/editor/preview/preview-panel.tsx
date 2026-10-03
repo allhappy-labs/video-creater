@@ -26,7 +26,7 @@ export function PreviewPanel({ insetRight = 0 }: { readonly insetRight?: number 
   const assetMediaId = useEditorStore(({ previewSource, project }) =>
     previewSource.kind === "asset" && project.media.some((media) => media.id === previewSource.mediaId) ? previewSource.mediaId : null,
   );
-  usePlaybackClock();
+  usePlaybackClock(panelRef);
   useCanonicalPreparation();
 
   function openSource(itemId: string, mediaId: string) {

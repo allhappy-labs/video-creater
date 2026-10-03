@@ -8,10 +8,45 @@ import {
   retryRemoteMediaTickets,
   subscribeRemoteMediaReadiness,
   refreshRemoteMediaUrl,
+  ensureRemoteMediaPaths,
 } from "./remote-resource-cache";
 
 describe("remote resource cache", () => {
   beforeEach(clearRemoteResourceUrlsForTests);
+
+  it("keeps newer frame tickets when an older preparation response arrives late", async () => {
+    const fetcher = async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const { relativePaths } = JSON.parse(String(init?.body)) as { relativePaths: string[] };
+      return new Response(JSON.stringify({ urls: Object.fromEntries(relativePaths.map((path) => [`p/${path}`, "/api/v1/media/0123456789abcdef0123456789abcdef"])) }));
+    };
+    const prepared = (revision: number) => ({ project: { contentRevision: revision, media: [{ relativePath: `cache/${revision}.mov` }] }, frameSequences: [{ framePaths: [`cache/${revision}.png`] }] });
+    await cacheMediaTicketsForResult("p", prepared(2), "csrf", fetcher);
+    await ensureRemoteMediaPaths("p", ["cache/2.png"]);
+    await cacheMediaTicketsForResult("p", prepared(1), "csrf", fetcher);
+    expect(remoteResourceUrl("p/cache/2.png")).not.toBe("");
+    expect(remoteResourceUrl("p/cache/1.mov")).toBe("");
+  });
+
+  it("retires old prepared frames before renewing tickets after several edits", async () => {
+    vi.useFakeTimers();
+    try {
+      const batches: string[][] = [];
+      const fetcher = async (_url: RequestInfo | URL, init?: RequestInit) => {
+        const { relativePaths } = JSON.parse(String(init?.body)) as { relativePaths: string[] };
+        batches.push(relativePaths);
+        return new Response(JSON.stringify({ urls: Object.fromEntries(relativePaths.map((path) => [`p/${path}`, "/api/v1/media/0123456789abcdef0123456789abcdef"])) }));
+      };
+      for (const revision of [1, 2, 3]) {
+        const path = `cache/precompose/revision-${revision}/frames/0.png`;
+        await cacheMediaTicketsForResult("p", { project: { media: [{ relativePath: `cache/precompose/revision-${revision}/intermediate.mov` }] }, frameSequences: [{ framePaths: [path] }] }, "csrf", fetcher);
+        await ensureRemoteMediaPaths("p", [path]);
+      }
+      batches.length = 0;
+      vi.setSystemTime(Date.now() + 5 * 60_000);
+      await retryRemoteMediaTickets("p");
+      expect(batches.flat().sort()).toEqual(["cache/precompose/revision-3/frames/0.png", "cache/precompose/revision-3/intermediate.mov"]);
+    } finally { vi.useRealTimers(); }
+  });
 
   it("mints and caches opaque URLs for canonical project-relative media", async () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({
@@ -197,4 +232,50 @@ describe("remote resource cache", () => {
       }),
     }));
   });
+});
+
+it("preserves original source tickets when a transient prepared project returns", async () => {
+  clearRemoteResourceUrlsForTests();
+  const fetcher = async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const { relativePaths } = JSON.parse(String(init?.body)) as { relativePaths: string[] };
+    return new Response(JSON.stringify({ urls: Object.fromEntries(relativePaths.map((path) => [`p/${path}`, "/api/v1/media/0123456789abcdef0123456789abcdef"])) }));
+  };
+  await cacheMediaTicketsForResult("p", { media: [{ relativePath: "original.lottie" }] }, "csrf", fetcher);
+  await cacheMediaTicketsForResult("p", { project: { media: [{ relativePath: "cache/prepared.mov" }] }, frameSequences: [] }, "csrf", fetcher);
+  expect(remoteResourceUrl("p/original.lottie")).not.toBe("");
+});
+
+it("loads prepared animation tickets on demand without exhausting the frame cache", async () => {
+  clearRemoteResourceUrlsForTests();
+  const requested: string[] = [];
+  await cacheMediaTicketsForResult("p", {
+    project: { media: [{ relativePath: "cache/prepared.mov" }] },
+    frameSequences: [{ framePaths: Array.from({ length: 9000 }, (_, i) => `frames/${i}.png`) }],
+  }, "csrf", async (_url, init) => {
+    const { relativePaths } = JSON.parse(String(init?.body)) as { relativePaths: string[] };
+    requested.push(...relativePaths);
+    return new Response(JSON.stringify({ urls: Object.fromEntries(relativePaths.map((path) => [`p/${path}`, "/api/v1/media/0123456789abcdef0123456789abcdef"])) }));
+  });
+  expect(requested).toEqual(["cache/prepared.mov"]);
+  await ensureRemoteMediaPaths("p", ["frames/0.png", "frames/1.png"]);
+  await ensureRemoteMediaPaths("p", ["frames/8999.png"]);
+  expect(remoteResourceUrl("p/frames/0.png")).not.toBe("");
+  expect(remoteResourceUrl("p/frames/8999.png")).not.toBe("");
+  expect(requested).toHaveLength(4);
+  expect(remoteMediaReadiness("p").status).toBe("ready");
+});
+
+it("retains canonical sources while an animation advances beyond the cache budget", async () => {
+  clearRemoteResourceUrlsForTests();
+  const fetcher = async (_url: RequestInfo | URL, init?: RequestInit) => {
+    const { relativePaths } = JSON.parse(String(init?.body)) as { relativePaths: string[] };
+    return new Response(JSON.stringify({ urls: Object.fromEntries(relativePaths.map((path) => [`p/${path}`, "/api/v1/media/0123456789abcdef0123456789abcdef"])) }));
+  };
+  await cacheMediaTicketsForResult("p", { media: [{ relativePath: "media/source.mp4" }] }, "csrf", fetcher);
+  for (let offset = 0; offset < 9000; offset += 1000) {
+    await ensureRemoteMediaPaths("p", Array.from({ length: 1000 }, (_, i) => `frames/${offset + i}.png`));
+  }
+  expect(remoteResourceUrl("p/media/source.mp4")).not.toBe("");
+  expect(remoteResourceUrl("p/frames/8999.png")).not.toBe("");
+  expect(remoteMediaReadiness("p").status).toBe("ready");
 });

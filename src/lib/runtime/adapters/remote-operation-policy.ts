@@ -66,5 +66,5 @@ export function remoteOperationHadFalseMutationMarker(operation: string): boolea
 
 /** Only readers whose host implementation avoids recovery/mutation gates bypass the FIFO. */
 export function remoteOperationBypassesQueue(operation: string): boolean {
-  return snapshotReads.has(operation) || operation.startsWith("cancel_");
+  return snapshotReads.has(operation) || operation === "prepare_project_preview" || operation.startsWith("cancel_");
 }

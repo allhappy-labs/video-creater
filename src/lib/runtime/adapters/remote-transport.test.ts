@@ -142,6 +142,25 @@ describe("RemoteTransport", () => {
     expect(mutation.editorLeaseToken).toBe("lease-1");
   });
 
+  it("allows edits to reach the host while read-only preview preparation is running", async () => {
+    let completePreview!: () => void;
+    let editSent = false;
+    const transport = new RemoteTransport({ csrfToken: "csrf", fetcher: async (url, init) => {
+      if (String(url).endsWith("/lease")) return new Response(JSON.stringify({ mode: "editor", editorLeaseToken: "lease", expiresAt: 200 }));
+      const request = JSON.parse(String(init?.body)) as { requestId: string; operation: string };
+      if (request.operation === "prepare_project_preview") return new Promise<Response>((resolve) => {
+        completePreview = () => resolve(new Response(JSON.stringify({ requestId: request.requestId, ok: true, result: { frameSequences: [], media: [] } })));
+      });
+      editSent = true;
+      return new Response(JSON.stringify({ requestId: request.requestId, ok: true, result: { project: { contentRevision: 1, media: [] } } }));
+    } });
+    const preparation = transport.request("prepare_project_preview", { projectDir: "p" });
+    await vi.waitFor(() => expect(completePreview).toBeTypeOf("function"));
+    const edit = transport.request("apply_project_actions_to_split_project_folder", { projectDir: "p", actions: [] });
+    try { await vi.waitFor(() => expect(editSent).toBe(true), { timeout: 100 }); }
+    finally { completePreview(); await Promise.all([preparation, edit]); }
+  });
+
   it("sends cancellation immediately without waiting to renew the project lease", async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input).endsWith("/lease")) {

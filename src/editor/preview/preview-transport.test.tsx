@@ -181,7 +181,7 @@ describe("asset preview", () => {
     expect(within(viewport).getByText(/Previewing:/)).toHaveTextContent("Previewing: input.mp4");
     const video = within(viewport).getByLabelText("Video preview input.mp4") as HTMLVideoElement;
     expect(video.tagName).toBe("VIDEO");
-    expect(video.muted).toBe(true);
+    expect(video.muted).toBe(false);
     expect(within(viewport).queryByLabelText("Timeline video Opening clip")).not.toBeInTheDocument();
     expect(transport()).toHaveTextContent("00:00:00 / 00:00:04");
 

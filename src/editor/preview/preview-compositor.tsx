@@ -32,6 +32,8 @@ export interface PreviewCompositorProps {
   readonly onOpenSource: (itemId: string, mediaId: string) => void;
   /** Canvas selection and inline editing for caption and text layers. */
   readonly textInteraction?: OverlayTextInteraction | undefined;
+  readonly layerStackingOrder?: Readonly<Record<string, number>> | undefined;
+  readonly mediaLoading?: boolean | undefined;
 }
 
 /**
@@ -50,7 +52,7 @@ export function PreviewCompositor(props: PreviewCompositorProps) {
   const solidsBefore = (itemId: string | null) =>
     model.transitionSolids
       .filter((solid) => solid.beforeItemId === itemId)
-      .map((solid) => <PreviewTransitionSolid key={`transition-solid:${solid.transitionId}`} transitionId={solid.transitionId} color={solid.color} />);
+      .map((solid) => <PreviewTransitionSolid key={`transition-solid:${solid.transitionId}`} transitionId={solid.transitionId} color={solid.color} stackingIndex={solid.beforeItemId === null ? -1 : (props.layerStackingOrder?.[solid.beforeItemId] ?? 0) - 1} />);
 
   function markFailed(itemId: string) {
     setFailed((current) => {
@@ -77,7 +79,7 @@ export function PreviewCompositor(props: PreviewCompositorProps) {
         // Dip solids sit just beneath their transition's clips, in one keyed list so media elements keep their identity.
         ...model.visibleMediaLayers.flatMap(({ layer, sourceUrl }) => [
           ...solidsBefore(layer.itemId),
-          <PreviewMediaLayer key={layer.itemId} layer={layer} sourceUrl={sourceUrl} playing={playing} outputSize={outputSize} onLoadError={() => { markFailed(layer.itemId); refreshRemoteMediaUrl(sourceUrl); }} />,
+          <PreviewMediaLayer key={layer.itemId} layer={layer} sourceUrl={sourceUrl} playing={playing} outputSize={outputSize} stackingIndex={props.layerStackingOrder?.[layer.itemId]} onLoadError={() => { markFailed(layer.itemId); refreshRemoteMediaUrl(sourceUrl); }} />,
         ]),
         ...solidsBefore(null),
       ]}
@@ -90,7 +92,7 @@ export function PreviewCompositor(props: PreviewCompositorProps) {
           <span>{model.emptyStateCopy}</span>
         </div>
       )}
-      {frame.overlayLayers.map((layer) => (
+      {model.visibleOverlayLayers.map((layer) => (
         <PreviewOverlayLayer
           key={layer.itemId}
           layer={layer}

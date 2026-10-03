@@ -37,6 +37,32 @@ function canonicalProject(): VideoProject {
 }
 
 describe("buildCompositorModel", () => {
+  it("waits for prepared frame tickets without asking to rebuild successful preparation", () => {
+    const model = buildCompositorModel(input(canonicalProject(), { canonical: { status: "ready" }, mediaLoading: true, playheadSeconds: 0.2 }));
+    expect(model.retryPreparesCanonical).toBe(false);
+    expect(model.issues).not.toContain("Prepared frame missing for timeline item item-1. Rebuild the canonical preview.");
+    expect(model.emptyStateCopy).toBe("Connecting prepared preview frames");
+  });
+  it("uses canonical animated frames for templates and exposes preparation failures", () => {
+    const project = fixtureProject();
+    project.timeline.tracks = [{
+      id: "graphics", name: "Graphics", kind: "overlay", enabled: true, locked: false,
+      items: [{ id: "template-1", kind: "overlay", startSeconds: 0, durationSeconds: 4,
+        source: { type: "generated", artifactId: "orphan" }, label: "Lower third",
+        properties: { templateId: "kinetic-lower-third-v1" } }],
+    }];
+    const fixture = buildCompositorModel(input(project));
+    expect(fixture.visibleOverlayLayers).toHaveLength(1);
+    const pending = buildCompositorModel(input(project, { canonical: { status: "pending" } }));
+    expect(pending).toMatchObject({ visibleOverlayLayers: [], issueTitle: "Preparing preview", emptyStateCopy: "Preparing canonical preview" });
+    const failed = buildCompositorModel(input(project, { canonical: { status: "failed", message: "Shader compile failed" } }));
+    expect(failed).toMatchObject({ visibleOverlayLayers: [], issues: ["Shader compile failed"], retryPreparesCanonical: true });
+    const missing = buildCompositorModel(input(project, { canonical: { status: "ready" } }));
+    expect(missing).toMatchObject({ visibleOverlayLayers: [], issueTitle: "Prepared frame missing", retryPreparesCanonical: true });
+    const ready = buildCompositorModel(input(project, { canonical: { status: "ready" }, coverageItemIds: new Set(["template-1"]), canonicalFrameCount: 1 }));
+    expect(ready).toMatchObject({ visibleOverlayLayers: [], issues: [], emptyStateCopy: null });
+  });
+
   it("draws the video and audio layers at the playhead with no issues", () => {
     const model = buildCompositorModel(input(fixtureProject()));
     expect(model.visibleMediaLayers.map(({ layer }) => layer.itemId)).toEqual(["item-1"]);

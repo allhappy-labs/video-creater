@@ -6,5 +6,6 @@ pub mod exports;
 pub mod jobs;
 pub mod media;
 pub mod operation;
+pub mod preview;
 pub mod projects;
 pub mod render_jobs;

@@ -3728,6 +3728,7 @@ interface PreparedPreviewFrameSequence {
 export async function prepareProjectPreview(input: {
   projectDir: string;
   project: VideoProject;
+  mediaId?: string;
 }): Promise<PreparedProjectPreview> {
   return backendRequest("prepare_project_preview", input);
 }
@@ -3764,6 +3765,9 @@ export function projectNeedsCanonicalPreview(project: VideoProject): boolean {
   );
   return [project.timeline, ...(project.timelines ?? []).map((entry) => entry.timeline)].some((timeline) => timeline.tracks.some((track) =>
     track.enabled !== false && (
+    track.items.some((item) =>
+      item.kind === "hyperframe_scene" && typeof item.properties.shaderBackgroundTemplateId === "string" ||
+      item.kind === "overlay" && typeof item.properties.templateId === "string") ||
     // Reversed video and audio play from prepared reversed intermediates.
     track.items.some(isReversedItem) ||
     track.kind === "video" &&

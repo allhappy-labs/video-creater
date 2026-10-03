@@ -94,6 +94,44 @@ fn remote_effect_catalog_matches_the_desktop_payload_without_editor_ownership() 
 }
 
 #[test]
+fn remote_preview_preparation_uses_the_saved_project_without_editor_ownership() {
+    use video_creater_lib::project::{model::VideoProject, split::save_split_project};
+    use video_creater_lib::web_host::{
+        dispatcher::HostDispatcher, project_catalog::ProjectCatalog,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("preview.palmier");
+    let project = VideoProject::new_empty(
+        "saved-preview".into(),
+        "Preview".into(),
+        "2026-10-03T00:00:00Z".into(),
+    );
+    save_split_project(&path, &project).unwrap();
+    let catalog = ProjectCatalog::new(vec![root.path().to_path_buf()]).unwrap();
+    let project_id = catalog.id_for_path(&path).unwrap();
+    let engine = RpcEngine::new(Arc::new(HostDispatcher::with_project_catalog(catalog)));
+    let body = serde_json::to_vec(&RpcEnvelope {
+        request_id: "prepare-preview".into(),
+        operation: "prepare_project_preview".into(),
+        project_id: Some(project_id),
+        expected_revision: None,
+        editor_lease_token: None,
+        payload: json!({"project": {"id": "untrusted-project"}}),
+    })
+    .unwrap();
+    let response = engine.execute(
+        "session-1",
+        &BTreeSet::from([AuthorizationScope::Session, AuthorizationScope::ProjectRead]),
+        &body,
+        100,
+    );
+    assert!(response.ok, "{:?}", response.error);
+    let result = response.result.unwrap();
+    assert_eq!(result["project"]["id"], "saved-preview");
+    assert_eq!(result["frameSequences"], json!([]));
+}
+
+#[test]
 fn envelope_validation_enforces_size_scope_project_revision_and_lease() {
     let registry = RpcRegistry::from_inventory();
     let request = RpcEnvelope {

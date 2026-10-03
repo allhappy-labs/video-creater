@@ -222,6 +222,20 @@ impl RpcDispatcher for HostDispatcher {
             "capture_canonical_preview_frame_in_split_project_folder" => {
                 self.capture_canonical_preview_frame(request)
             }
+            "prepare_project_preview" => {
+                let path = self.resolve_project(request)?;
+                let media_id = match request.payload.get("mediaId") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::String(media_id)) if !media_id.is_empty() => {
+                        Some(media_id.as_str())
+                    }
+                    _ => return Err("preview media ID is invalid".into()),
+                };
+                serde_json::to_value(crate::app_service::preview::prepare_project_preview(
+                    &path, None, media_id,
+                )?)
+                .map_err(|_| "prepared preview response failed".to_string())
+            }
             "load_agent_sessions_from_split_project_folder" => {
                 let path = self.resolve_project(request)?;
                 serde_json::to_value(
@@ -503,16 +517,15 @@ impl HostDispatcher {
         let path = self.resolve_project(request)?;
         let input: CanonicalPreviewRequest = serde_json::from_value(request.payload.clone())
             .map_err(|_| "canonical preview request is invalid".to_string())?;
-        serde_json::to_value(
-            render_prepared_preview_frame_to_split_project_folder(
-                &path,
-                input.playhead_seconds,
-                &input.job_id,
-                &input.updated_at,
-            )
-            .map_err(pipeline_error_message)?,
+        let result = render_prepared_preview_frame_to_split_project_folder(
+            &path,
+            input.playhead_seconds,
+            &input.job_id,
+            &input.updated_at,
         )
-        .map_err(|_| "canonical preview response failed".to_string())
+        .map_err(pipeline_error_message)?;
+        crate::app_service::preview::record_captured_preview_resource(&path, &result)?;
+        serde_json::to_value(result).map_err(|_| "canonical preview response failed".to_string())
     }
 
     fn ensure_revision(

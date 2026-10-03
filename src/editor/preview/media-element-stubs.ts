@@ -11,6 +11,9 @@ export function installMediaAndFrameStubs() {
   let nextFrameId = 1;
   const times = new WeakMap<HTMLMediaElement, number>();
   const paused = new WeakMap<HTMLMediaElement, boolean>();
+  vi.spyOn(HTMLMediaElement.prototype, "readyState", "get").mockReturnValue(4);
+  vi.spyOn(HTMLImageElement.prototype, "complete", "get").mockReturnValue(true);
+  vi.spyOn(HTMLImageElement.prototype, "naturalWidth", "get").mockReturnValue(128);
   vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
     const id = nextFrameId++;
     frames.push({ callback, id });

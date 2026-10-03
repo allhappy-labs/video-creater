@@ -18,12 +18,14 @@ import {
   canonicalStateForProject,
   preparedAudioLayers,
   preparedResultForProject,
+  previewLayerStackingOrder,
 } from "./canonical-frames";
 import { PreviewCompositor } from "./preview-compositor";
 import { PreviewTransport, type PreviewFullscreenControls } from "./preview-transport";
 import { timelineWithPropertyPreview } from "./property-preview";
 import { PreviewViewport } from "./preview-viewport";
 import { usePreviewKeys } from "./use-preview-keys";
+import { useCanonicalFrameResources } from "./use-canonical-frame-resources";
 
 const fallbackFps = 24;
 
@@ -57,6 +59,7 @@ export function TimelinePreview({
   const needsCanonical = useMemo(() => projectNeedsCanonicalPreview(project), [project]);
   const canonical = canonicalStateForProject(preparation, project, needsCanonical);
   const prepared = preparedResultForProject(preparation, project);
+  useCanonicalFrameResources(prepared, projectDir, clampedSeconds);
   const sequences = useMemo(() => (prepared ? canonicalFrameSequences(prepared, projectDir) : []), [prepared, projectDir, mediaReadiness.version]);
 
   // A dragged Properties value shows live without touching the project.
@@ -78,12 +81,16 @@ export function TimelinePreview({
       })
     : null;
   const frameLayers = canonicalFrameLayers(preparedFrame, sequences, clampedSeconds);
+  const layerStackingOrder = previewLayerStackingOrder(preparedFrame ?? frame);
   const coverageItemIds = canonicalCoverageItemIds(frameLayers, preparedFrame, frame);
   const preparedAudio = preparedAudioLayers(preparedFrame, projectDir);
   const interactiveLayers = interactiveCanvasLayers({ frame, canonical, coverageItemIds, mediaPreviewUrls });
+  const awaitingPreparation = canonical?.status === "pending" && (Boolean(frame.canonicalTemplateItemIds?.length) || [...frame.layers, ...frame.audioLayers].some((layer) => layer.canonicalPreparationRequired));
+  const awaitingTickets = mediaReadiness.status === "loading" && [...frame.layers, ...frame.audioLayers].some((layer) => !coverageItemIds.has(layer.itemId) && !mediaPreviewUrls[layer.mediaId]);
+  const awaitingFrames = preparedFrame?.layers.some((layer) => sequences.some((sequence) => sequence.itemId === layer.itemId) && !frameLayers.some((entry) => entry.layer.itemId === layer.itemId));
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col" onKeyDown={onKeyDown}>
+    <div data-preview-buffering={awaitingPreparation || awaitingTickets || awaitingFrames ? "true" : undefined} className="flex min-h-0 flex-1 flex-col" onKeyDown={onKeyDown}>
       <PreviewViewport width={renderSettings.width} height={renderSettings.height}>
         <PreviewCompositor
           frame={frame}
@@ -93,6 +100,8 @@ export function TimelinePreview({
           playing={playing}
           outputSize={outputSize}
           mediaPreviewUrls={mediaPreviewUrls}
+          layerStackingOrder={layerStackingOrder}
+          mediaLoading={mediaReadiness.status === "loading"}
           canonical={canonical}
           coverageItemIds={coverageItemIds}
           canonicalFrameCount={frameLayers.length}
@@ -104,6 +113,7 @@ export function TimelinePreview({
         <CanonicalFrameLayers
           frameLayers={frameLayers}
           sequences={sequences}
+          layerStackingOrder={layerStackingOrder}
           seconds={clampedSeconds}
           outputSize={outputSize}
           onRetry={retryCanonicalPreparation}

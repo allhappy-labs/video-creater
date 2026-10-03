@@ -2191,3 +2191,13 @@ describe("timeline preview clip speed", () => {
     expect(buildTimelinePreviewFrame({ timeline, media, playheadSeconds: 2 }).layers[0]).toMatchObject({ itemId: "clip-1", playbackRate: 1 });
   });
 });
+
+ it("plans shader references for canonical preparation without requiring generated provider assets", () => {
+   const frame = buildTimelinePreviewFrame({ media: [], playheadSeconds: 1,
+     timeline: { durationSeconds: 4, tracks: [{ id: "graphics", name: "Graphics", kind: "hyperframe_scene", enabled: true, locked: false,
+       items: [{ id: "shader", kind: "hyperframe_scene", startSeconds: 0, durationSeconds: 4,
+         source: { type: "generated", artifactId: "orphan" }, label: "Shader", properties: { shaderBackgroundTemplateId: "shadertoy-octagrams-v1" } }],
+     }] },
+   });
+   expect(frame).toMatchObject({ status: "ready", layers: [], overlayLayers: [], issues: [], canonicalTemplateItemIds: ["shader"] });
+ });
