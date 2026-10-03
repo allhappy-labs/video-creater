@@ -58,6 +58,20 @@ export function projectRevisionFromResult(value: unknown): number | undefined {
   return undefined;
 }
 
+export function canonicalProjectIdFromResult(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const record = value as Record<string, unknown>;
+  for (const candidate of [record, record.project]) {
+    if (typeof candidate !== "object" || candidate === null) continue;
+    const revision = (candidate as Record<string, unknown>).contentRevision;
+    if (typeof revision === "number" && Number.isSafeInteger(revision) && revision >= 0) {
+      const id = stringFieldFromUnknown(candidate, "id");
+      if (id !== undefined) return id;
+    }
+  }
+  return undefined;
+}
+
 export async function remoteArtifactUrl(projectId: string, artifactId: string, fetcher: Fetcher, csrfToken: string, deadline: number): Promise<string> {
   const { response, body } = await withRemoteDeadline(deadline, async (signal) => {
     const response = await fetcher("/api/v1/resource-tickets/artifact", {

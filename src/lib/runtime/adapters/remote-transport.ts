@@ -12,7 +12,7 @@ import { cacheMediaTicketsForResult, remoteResourceUrl, resetRemoteResourceSessi
 import { remoteCsrfToken, setRemoteCsrfToken } from "./remote-credentials";
 import { ExpiredServerRequestOutcome, RemoteOutcomeCapacityError, restoreServerOutcomes, ServerOutcomeClient, type ServerRequestOutcome } from "./remote-server-outcomes";
 import { validateCanonicalReconciliation } from "./remote-outcome-reconciliation";
-import { type Fetcher, type RpcResponse, type RemoteEvent, rpcErrorCodes, randomId, stringField, projectIdFor, expectedRevisionFor, stringFieldFromUnknown, projectRevisionFromResult, remoteArtifactUrl } from "./remote-transport-fields";
+import { type Fetcher, type RpcResponse, type RemoteEvent, rpcErrorCodes, randomId, stringField, projectIdFor, expectedRevisionFor, stringFieldFromUnknown, projectRevisionFromResult, canonicalProjectIdFromResult, remoteArtifactUrl } from "./remote-transport-fields";
 import {
   remoteEditorLeaseToken,
   remoteProjectAccess,
@@ -339,7 +339,7 @@ export class RemoteTransport implements BackendTransport {
     // Reconciliation validates identity before a response can install revisions or media.
     validateResult?.(result);
     if (projectId) {
-      const canonicalId = stringFieldFromUnknown(result, "id") ?? stringFieldFromUnknown(typeof result === "object" && result !== null ? (result as Record<string, unknown>).project : undefined, "id");
+      const canonicalId = canonicalProjectIdFromResult(result);
       if (canonicalId !== undefined) {
         this.canonicalProjectIds.delete(projectId);
         const safeId = safeRemoteCanonicalProjectId(canonicalId);
