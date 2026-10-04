@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 
-import { createProcessGroup } from "./linux-desktop-smoke-processes.mjs";
+import { createProcessGroup, fatalCause } from "./linux-desktop-smoke-processes.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
 
@@ -72,5 +72,50 @@ test("retained child-process logs redact local media authorization tokens", asyn
     const log = readFileSync(join(dir, process.execPath.split("/").at(-1)! + ".log"), "utf8");
     assert.ok(!log.includes(token), "retained process log contains a media token");
     assert.equal(log, "http://127.0.0.1:4790/media/[redacted]/sample.mp4");
+  });
+});
+
+test("a run that stops before its steps names the app panic from the process output", async () => {
+  await withDir(async (dir) => {
+    const group = createProcessGroup({ cwd: dir });
+    group.start("sh", ["-c", "echo display ready; exec sleep 30"]);
+    // tauri-driver relays the app's stderr; the panic message is on the line after its location.
+    const panic = [
+      "(video-creater:7766): dbind-WARNING **: AT-SPI: Error retrieving accessibility bus address",
+      "",
+      "thread 'main' (7766) panicked at tauri-2.11.2/src/app.rs:1417:11:",
+      "Failed to setup app: error encountered during setup hook: VIDEO_CREATER_SETTINGS_ACCEPTANCE_ROOT is required",
+      "note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace",
+    ].join("\n");
+    const driver = group.start(process.execPath, ["-e", `process.stderr.write(${JSON.stringify(panic)}); setTimeout(() => {}, 30000);`]);
+    await new Promise((resolveOutput) => driver.stderr!.once("data", resolveOutput));
+    const tails = group.logTails();
+    group.stopAll(dir);
+    assert.deepEqual(tails.map((entry) => entry.command).sort(), [process.execPath.split("/").at(-1), "sh"].sort());
+    assert.equal(
+      fatalCause(tails),
+      `${process.execPath.split("/").at(-1)}: thread 'main' (7766) panicked at tauri-2.11.2/src/app.rs:1417:11: Failed to setup app: error encountered during setup hook: VIDEO_CREATER_SETTINGS_ACCEPTANCE_ROOT is required`,
+    );
+  });
+});
+
+test("fatalCause is null for ordinary output and log tails are bounded and redacted", async () => {
+  assert.equal(fatalCause([{ command: "Xvfb", tail: ["Errors from xkbcomp are not fatal to the X server"] }]), null);
+  assert.equal(fatalCause([{ command: "app", tail: ["app: error while loading shared libraries: libfoo.so.1"] }]), "app: app: error while loading shared libraries: libfoo.so.1");
+  await withDir(async (dir) => {
+    const token = "c".repeat(64);
+    const group = createProcessGroup({ cwd: dir });
+    const script = `for (let i = 0; i < 30; i += 1) console.log("line " + i); console.log("http://127.0.0.1:4790/media/${token}/a.mp4"); setTimeout(() => {}, 30000);`;
+    const child = group.start(process.execPath, ["-e", script]);
+    await new Promise<void>((resolveOutput) => {
+      let seen = "";
+      child.stdout!.on("data", (chunk) => {
+        seen += chunk;
+        if (seen.includes("/a.mp4")) resolveOutput();
+      });
+    });
+    const [entry] = group.logTails(3);
+    group.stopAll(dir);
+    assert.deepEqual(entry.tail, ["line 28", "line 29", "http://127.0.0.1:4790/media/[redacted]/a.mp4"]);
   });
 });

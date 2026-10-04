@@ -34,9 +34,10 @@ import {
   waitForEditor,
 } from "./linux-desktop-smoke-selectors.mjs";
 import { nativeMenuStepNames, runNativeMenuSteps } from "./linux-desktop-smoke-native-menu.mjs";
-import { createProcessGroup } from "./linux-desktop-smoke-processes.mjs";
+import { createProcessGroup, fatalCause } from "./linux-desktop-smoke-processes.mjs";
 import {
   newExportArtifacts,
+  newFailedJobs,
   readRenderPipelineReport,
   renderPipelineReportPath,
   requireSucceededRenderReport,
@@ -45,6 +46,7 @@ import {
 } from "./linux-desktop-smoke-retain.mjs";
 import { createStepRunner, exitCodeFor, parseSmokeOptions, redactSmokeMediaTokens, skipped, smokeRunContext, summarizeSteps } from "./linux-desktop-smoke-steps.mjs";
 import { runTemporalSteps, temporalStepNames } from "./linux-desktop-smoke-temporal.mjs";
+import { runTemporalUnavailableSteps, temporalUnavailableStepNames } from "./linux-desktop-smoke-temporal-unavailable.mjs";
 import { extractedToolEnvironment, extractedToolPath, stopExtractedToolProcesses } from "./linux-desktop-smoke-tools.mjs";
 
 const repoRoot = resolve(import.meta.dirname, "..");
@@ -208,15 +210,7 @@ async function main() {
   await step("export the sample to MP4 H.264 from the export popover", async () => {
     const projectDir = "/tmp/video-creater-editor-project";
     const loadProject = () => invoke("load_split_project_from_folder", { projectDir });
-    await execute(`if (!window.__vcInvokeFailures) {
-      window.__vcInvokeFailures = [];
-      const original = window.__TAURI_INTERNALS__.invoke.bind(window.__TAURI_INTERNALS__);
-      window.__TAURI_INTERNALS__.invoke = (command, args, options) => original(command, args, options).catch((error) => {
-        window.__vcInvokeFailures.push({ command, args: JSON.stringify(args).slice(0, 4000), error: typeof error === 'string' ? error : JSON.stringify(error) });
-        throw error;
-      });
-    }`);
-    const before = (await loadProject()).exportArtifacts;
+    const before = await loadProject();
     await openExportPopover(driver);
     await click(exportChoice("MP4"));
     await click(exportChoice("720p"));
@@ -241,16 +235,15 @@ async function main() {
     const artifact = await poll(
       async () => {
         await sampleLabel();
-        const [found] = newExportArtifacts(before, (await loadProject()).exportArtifacts, "mp4");
+        const project = await loadProject();
+        // A failed export job ends the wait with the app's reason instead of the full timeout.
+        const failed = newFailedJobs(before.jobs, project.jobs);
+        if (failed.length > 0) throw new Error(`export failed: ${JSON.stringify(failed)}`);
+        const [found] = newExportArtifacts(before.exportArtifacts, project.exportArtifacts, "mp4");
         const path = found && resolveArtifactPath(projectDir, found.path);
         return path && existsSync(path) && statSync(path).size > 0 ? found : undefined;
       },
-      async (found) => {
-        if (found) return true;
-        const failures = await execute("return window.__vcInvokeFailures || [];");
-        if (failures.length > 0) throw new Error(`backend failures: ${JSON.stringify(failures)}`);
-        return false;
-      },
+      Boolean,
       300_000,
       2000,
     );
@@ -525,6 +518,8 @@ async function main() {
     return { inspected };
   });
 
+  if (options.temporalUnavailable) await runTemporalUnavailableSteps({ driver, step });
+  else for (const name of temporalUnavailableStepNames) await step(name, async () => skipped("run with --temporal-unavailable"));
 
   if (options.temporal) await runTemporalSteps({ driver, step, projectPath, outDir });
   else for (const name of temporalStepNames) await step(name, async () => skipped("run with --temporal"));
@@ -560,6 +555,12 @@ try {
     }
   };
   await cleanup("end WebDriver session", () => driver.endSession());
+  if (evidence.fatal) {
+    // A run that never reached its steps (for example an app that exits at startup) says why.
+    evidence.processLogTails = processes.logTails();
+    const cause = fatalCause(evidence.processLogTails);
+    if (cause) evidence.fatalCause = cause;
+  }
   processes.stopAll(outDir);
   if (options.keyringRoot) await cleanup("stop keyring", () => stopExtractedToolProcesses(options.keyringRoot));
   await sleep(1000);

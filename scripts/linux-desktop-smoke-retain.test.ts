@@ -6,6 +6,7 @@ import test from "node:test";
 
 import {
   newExportArtifacts,
+  newFailedJobs,
   readRenderPipelineReport,
   renderPathSegment,
   renderPipelineReportPath,
@@ -120,4 +121,19 @@ test("requireSucceededRenderReport fails when the report is missing or did not s
   );
   const succeeded = { path: "renders/export-1/pipeline-report.json", report: { summary: { status: "succeeded" } } };
   assert.equal(requireSucceededRenderReport(succeeded, "export-1"), succeeded);
+});
+
+test("newFailedJobs reports only jobs that failed after the export started, with their reason", () => {
+  const before = [{ id: "old-failed", kind: "export_media", status: "failed" }];
+  const after = [
+    ...before,
+    { id: "running", kind: "export_media", status: "running" },
+    { id: "refused", kind: "export_media", status: "failed", failureReason: "Temporal runtime is unavailable in this build." },
+    { id: "no-reason", kind: "transcribe_media", status: "failed" },
+  ];
+  assert.deepEqual(newFailedJobs(before, after), [
+    { id: "refused", kind: "export_media", failureReason: "Temporal runtime is unavailable in this build." },
+    { id: "no-reason", kind: "transcribe_media", failureReason: null },
+  ]);
+  assert.deepEqual(newFailedJobs(undefined, undefined), []);
 });

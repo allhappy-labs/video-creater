@@ -27,6 +27,14 @@ export function newExportArtifacts(before = [], after = [], kind) {
   return (after ?? []).filter((artifact) => !known.has(artifact.id) && artifact.kind === kind);
 }
 
+/** Jobs recorded after `before` that failed, each with the app's plain-language reason. */
+export function newFailedJobs(before = [], after = []) {
+  const known = new Set((before ?? []).map((job) => job.id));
+  return (after ?? [])
+    .filter((job) => !known.has(job.id) && job.status === "failed")
+    .map(({ id, kind, failureReason }) => ({ id, kind, failureReason: failureReason ?? null }));
+}
+
 /** Recorded export paths are project-relative under exports/, or absolute for a chosen folder. */
 export function resolveArtifactPath(projectDir, path) {
   return isAbsolute(path) ? path : join(projectDir, path);

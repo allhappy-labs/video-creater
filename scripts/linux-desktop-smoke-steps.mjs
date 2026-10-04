@@ -7,6 +7,7 @@ const booleanFlags = {
   "--dev-server": "devServer",
   "--fake-audio": "fakeAudio",
   "--temporal": "temporal",
+  "--temporal-unavailable": "temporalUnavailable",
   "--native-menu": "nativeMenu",
   "--agent-flows": "agentFlows",
   "--export-tasks": "exportTasks",
@@ -65,6 +66,7 @@ export function parseSmokeOptions(argv) {
     .split(",")
     .map((pattern) => pattern.trim())
     .filter(Boolean);
+  if (options.temporal && options.temporalUnavailable) throw new Error("--temporal and --temporal-unavailable test opposite builds; pass one");
   if (options.nativeMenu && !options.xdotoolRoot) throw new Error("--native-menu needs --xdotool-root");
   if (!agentBackends.includes(options.agentBackend)) throw new Error(`--agent-backend must be one of ${agentBackends.join(", ")}`);
   if (!claudeModels.includes(options.claudeModel)) throw new Error(`--claude-model must be one of ${claudeModels.join(", ")}`);

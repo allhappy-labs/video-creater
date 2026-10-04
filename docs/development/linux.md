@@ -114,6 +114,13 @@ VIDEO_CREATER_RENDER_RUNTIME_ROOT=<runtime-dir> rtk dbus-run-session -- node scr
 ```
 
 Release builds leave out the `temporal-worker` feature, so the Temporal steps need the debug build.
+Against the package, add `--temporal-unavailable` instead (steps named `Temporal unavailable: …`):
+with Temporal execution selected, an export must be refused with its reason shown, leave one failed
+job, and produce no artifact, file or render folder.
+
+A run that stops before its steps (for example an app that exits at startup) records the last output
+lines of each background process as `processLogTails` in `evidence.json`, and the panic or load error
+found there as `fatalCause`. An export step ends as soon as its job is recorded as failed.
 
 The core steps cover:
 

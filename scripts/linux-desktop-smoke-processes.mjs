@@ -60,5 +60,31 @@ export function createProcessGroup({ cwd, env = process.env }) {
     }
   }
 
-  return { children, failure, start, stopAll };
+  /** The last `lines` output lines of every process that wrote any, oldest process first. */
+  function logTails(lines = 20) {
+    return children
+      .map(({ command, logs }) => ({
+        command: command.split("/").at(-1),
+        tail: redactSmokeMediaTokens(logs.join("")).split("\n").filter((line) => line.trim() !== "").slice(-lines),
+      }))
+      .filter((entry) => entry.tail.length > 0);
+  }
+
+  return { children, failure, logTails, start, stopAll };
+}
+
+const fatalLine = /panicked at|Failed to setup app|error while loading shared libraries|Segmentation fault|core dumped/;
+
+/**
+ * The first process output that explains a run which stopped before its steps: a panic (with the
+ * message on the line after it), a failed app setup, an unloadable library or a crash.
+ */
+export function fatalCause(tails) {
+  for (const { command, tail } of tails) {
+    const index = tail.findIndex((line) => fatalLine.test(line));
+    if (index < 0) continue;
+    const lines = /panicked at/.test(tail[index]) && tail[index + 1] ? [tail[index], tail[index + 1]] : [tail[index]];
+    return `${command}: ${lines.map((line) => line.trim()).join(" ")}`;
+  }
+  return null;
 }

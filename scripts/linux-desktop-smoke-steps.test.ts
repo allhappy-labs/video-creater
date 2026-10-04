@@ -20,6 +20,7 @@ test("parseSmokeOptions keeps today's defaults", () => {
   assert.equal(options.nativeDriver, "WebKitWebDriver");
   assert.deepEqual(options.only, []);
   assert.equal(options.temporal, false);
+  assert.equal(options.temporalUnavailable, false);
   assert.equal(options.nativeMenu, false);
   assert.equal(options.agentFlows, false);
 });
@@ -198,4 +199,9 @@ test("step evidence and diagnostics redact local media tokens without changing a
   assert.ok(JSON.stringify(evidence).includes("/media/[redacted]/sample.mp4"));
   assert.equal(detail.videos[0].src, url, "validation must continue using the real source URL");
   assert.ok(JSON.stringify(evidence).includes("exports/sample.mp4"));
+});
+
+test("--temporal-unavailable is a flag that cannot be combined with --temporal", () => {
+  assert.equal(parseSmokeOptions(["--temporal-unavailable"]).temporalUnavailable, true);
+  assert.throws(() => parseSmokeOptions(["--temporal", "--temporal-unavailable"]), /test opposite builds/);
 });
