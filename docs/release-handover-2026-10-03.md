@@ -35,6 +35,8 @@ The integrated release-hardening commits are `e0aeefa6..b1faf305`:
 | Native menu and keyring (follow-up) | 4 passed, 0 failed, 0 skipped against the same packaged `.deb` (SHA-256 above). A real X `Ctrl+Z` restored exactly one of two deleted clips; GTK Edit → Undo (F10, Right, Down, Return) restored the other. A synthetic OpenAI credential was set, listed as `keychain`, deleted, and listed as `missing` through a private GNOME Keyring on a private session bus. | `output/linux-desktop-smoke/b1faf305adc4-native-gaps-r2/evidence.json` |
 | Temporal unavailable, packaged (follow-up) | 5 passed. The packaged app reports `featureEnabled: false`. With Temporal selected, an MP4 export was refused with status `unavailable`, the job was marked failed, the reason was shown in the editor, and no artifact, export file, or render directory appeared in the following 20 seconds. | `output/temporal-local-verification/b1faf305adc4/packaged-unavailable/evidence.json` |
 | Temporal live worker, debug build (follow-up) | 4 passed. Debug app and worker rebuilt from the current source with default features; official Temporal CLI 1.8.3 dev server with in-memory persistence. One MP4 export completed through the worker with a Temporal run ID: 4,939,742 bytes, video and audio streams present. | `output/temporal-local-verification/b1faf305adc4/live-worker/evidence.json` |
+| Temporal live worker, full (follow-up) | 9 passed, 0 skipped, debug build. The transcription model (`nvidia/parakeet-tdt-0.6b-v3`, 670,478,772 bytes) and the speech-analysis models were downloaded and installed from settings; an MP4 export and a transcription (43 words, `sherpa_onnx`) completed through the worker; speech analysis returned 8 speech ranges. | `output/temporal-local-verification/b1faf305adc4/live-worker-full/evidence.json` |
+| Smoke harness (follow-up) | `--temporal-unavailable` passed 3 of 3 against the packaged app. A deliberately broken launch now records `fatalCause` with the app's panic message. 75 harness unit tests, the source-quality suite, type checks and the unused-code check passed. | `output/linux-desktop-smoke/b1faf305adc4-harness-check/` |
 | Security | JavaScript and Rust vulnerability/unsound advisories had no unresolved findings. Eleven upstream Rust unmaintained warnings remain visible for dependency stewardship. | `output/release-readiness/b1faf305adc4/report.json` |
 
 The 30-second renderer ran on llvmpipe software graphics at roughly 2.43 fps. It demonstrates correctness and bounded memory on this VM; it is not a hardware-GPU or real-time performance claim.
@@ -79,7 +81,29 @@ The credential went to the app's default service name inside the private keyring
 - Packaged: `output/temporal-local-verification/b1faf305adc4/unavailable-audit.mjs` is a one-off driver built on the smoke helpers and kept with the evidence, not in `scripts/`. Its first attempt failed on its own probe (a webview-side `invoke` wrapper does not observe the app's calls); that run is kept as `packaged-unavailable-attempt1-probe-defect/`. The app behaved identically in both runs.
 - Live worker: `scripts/linux-desktop-smoke.mjs --dev-server --app src-tauri/target/debug/video-creater --temporal --temporal-cli ~/.cache/vc-desktop-tools/temporal/temporal --temporal-worker src-tauri/target/debug/video-creater-temporal-worker --only "render system health,select Temporal execution,export MP4 through the Temporal worker"`. The cached CLI archive matches the SHA-256 published for `temporal_cli_1.8.3_linux_amd64.tar.gz`. The build log is `live-worker/debug-build.log`.
 
-Limits of the Temporal evidence: the live run is a debug build, not the package, and covers one export. Transcription through the worker and model download were not run. Selecting Temporal in Advanced settings is accepted without a warning; the unavailable state is reported when work is dispatched, and the message is developer-oriented ("Rebuild with default features…"). That is truthful but could be friendlier in a packaged build; it was left alone because the UI is out of scope for this pass.
+Limits of the Temporal evidence: the live runs use a debug build, not the package. The full run (`live-worker-full/`) added model download, transcription through the worker and speech analysis. Selecting Temporal in Advanced settings is accepted without a warning; the unavailable state is reported when work is dispatched, and the message is developer-oriented ("Rebuild with default features…"). That is truthful but could be friendlier in a packaged build; it was left alone because the UI is out of scope for this pass.
+
+## Smoke harness changes after the audits
+
+Commit `ef114b13` changes only `scripts/linux-desktop-smoke*` and its documentation; no packaged code changed.
+
+- The export step's webview-side `invoke` wrapper never saw a call, because Tauri defines `window.__TAURI_INTERNALS__.invoke` as non-writable. A backend export failure therefore surfaced only as a five-minute timeout. The step now stops as soon as the project records a failed job and reports the app's reason.
+- A run that stops before its steps records the last output of each background process (`processLogTails`) and the panic or load error found there (`fatalCause`).
+- `--temporal-unavailable` adds the packaged-build check as two repeatable steps. Add it to the packaged smoke run for future releases.
+
+## Dependency warnings
+
+`cargo audit` (advisory database of 2026-10-03) reports no vulnerabilities and eleven unmaintained crates. None has a fix available without a major upstream move.
+
+| Crates | Pulled in by | In the release package | Next step |
+| --- | --- | --- | --- |
+| `backoff`, `instant` | `temporalio-client` and `temporalio-sdk-core` 0.5.0 | No: only with the `temporal-worker` feature | Evaluate the Temporal SDK 1.0 upgrade. |
+| `unic-*` (five crates) | `urlpattern` 0.3 through `tauri-utils` 2.9.2 | Yes; parses the app's own capability patterns, not user input | Wait for a Tauri release that moves to a newer `urlpattern`. |
+| `ttf-parser` | `fontdb` 0.23 through `cosmic-text` 0.19.0 | Yes; parses font files for text rendering | The one to watch: it reads file data at run time. `cosmic-text` 0.19.0 is the current release. |
+| `proc-macro-error` | `glib-macros` 0.18 (GTK3 bindings) | Compile time only | Tied to Tauri 2's GTK3 stack. |
+| `paste`, `anymap2` | `tract` and `tokenizers` in the audio-enhance and semantic-encoder helpers | `paste` is compile time only; `anymap2` comes through `liquid-core`, not confirmed as build-only | Wait for upstream. |
+
+The JavaScript `braces` advisory is reached only through `tailwindcss > chokidar` (development tooling) and stays covered by the hash-checked local patch.
 
 ## Remaining release gates
 
@@ -102,6 +126,8 @@ Do not treat local Tailscale routing as deployment proof. Do not weaken secure-c
 6. Push or deploy only with separate authorization. Preserve the unrelated worktrees until their owners have completed their work.
 
 ## Repository housekeeping
+
+The debug build cache was trimmed: 707 unlinked test executables (204 GB) were deleted from `src-tauri/target/debug/deps`, taking the disk from 92% to 51% used. Compiled dependencies, the debug app and the Temporal worker binary were kept; the next `cargo test` relinks its test binaries.
 
 The completed release branch was fast-forwarded into local `main` and removed. Three unrelated worktrees remain and must be preserved:
 
