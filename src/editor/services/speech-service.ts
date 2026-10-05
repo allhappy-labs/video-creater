@@ -11,6 +11,7 @@ import {
   buildTemporalTranscribeMediaStartRequest,
   loadSplitProjectFromFolder,
   renameProjectSpeaker,
+  runTranscribeMediaInProcess,
   startTemporalWorkflow,
   type ProjectAction,
   type ProjectActionRippleDeleteRange,
@@ -20,6 +21,7 @@ import {
   type TemporalWorkflowStartRequest,
   type VideoProject,
 } from "@/lib/project";
+import { loadAppSettingsPreferences, type AppSettingsPreferences } from "@/lib/app-settings";
 import { audioDenoise, denoiseActions } from "@/lib/properties/audio-properties";
 import { isBackendUnavailableError } from "@/lib/runtime/backend-transport";
 import type { TimelineItem } from "@/lib/timeline";
@@ -41,7 +43,10 @@ interface BuildCaptionsInput extends Omit<CaptionBuildOptions, "groupId"> {
  * Each method resolves `false` when it was blocked or failed, with the reason in `lastError`.
  */
 export interface SpeechService {
-  /** Pre-cut `queueSelectedMediaTranscription`: records the Temporal job, then starts it. */
+  /**
+   * Records the transcription job, then runs it: in the backend process by default (resolving once
+   * the transcript is stored), or as a Temporal workflow when that execution backend is selected.
+   */
   transcribe(mediaId: string, languageMode?: string): Promise<boolean>;
   /**
    * Places built captions (a caption track when needed, plus the cues) as one undo step and selects them.
@@ -144,8 +149,14 @@ async function transcribeStartRequest(input: TranscribeStartInput): Promise<Temp
   }
 }
 
-export function createSpeechService(store: EditorStore): SpeechService {
+interface SpeechServiceOptions {
+  /** Defaults to the accepted app preferences. */
+  readonly preferences?: () => AppSettingsPreferences;
+}
+
+export function createSpeechService(store: EditorStore, options: SpeechServiceOptions = {}): SpeechService {
   const state = () => store.getState();
+  const preferences = options.preferences ?? loadAppSettingsPreferences;
   let startingJobIds = startingJobIdsByStore.get(store);
   if (!startingJobIds) {
     startingJobIds = new Set();
@@ -186,6 +197,32 @@ export function createSpeechService(store: EditorStore): SpeechService {
   }
 
   /**
+   * Runs the queued job in the backend process and waits for it. The backend marks the job running,
+   * stores the transcript and completes or fails the job; polling shows the running state meanwhile.
+   */
+  async function runQueuedJobInProcess(job: ProjectJobSummary): Promise<boolean> {
+    if (!job.startRequest || starting.has(job.id)) return true;
+    starting.add(job.id);
+    try {
+      state().startPolling();
+      const completed: unknown = await runTranscribeMediaInProcess({ startRequest: job.startRequest, updatedAt: new Date().toISOString() });
+      if (isProject(completed)) await state().mergeLoadedProject(completed);
+      return true;
+    } catch (error) {
+      if (isBackendUnavailableError(error)) {
+        // Bridges without the native command fall back to the distributed Temporal start.
+        starting.delete(job.id);
+        return await startQueuedWorkflow(job);
+      }
+      // The backend fails the job with its reason before rejecting, so reload to show it.
+      await reloadProject();
+      return block(errorMessage(error));
+    } finally {
+      starting.delete(job.id);
+    }
+  }
+
+  /**
    * Speech commands write the split project on the backend, so the project is reloaded afterwards.
    * The reload is not an undo step: undo would overwrite the backend's analysis results.
    */
@@ -210,7 +247,8 @@ export function createSpeechService(store: EditorStore): SpeechService {
         const queuedJob: ProjectJobSummary = { ...job, startRequest };
         const recorded = await state().applyActions([{ type: "recordJob", job: queuedJob }]);
         if (!recorded) return block("Transcription workflow could not be recorded.");
-        return await startQueuedWorkflow(queuedJob);
+        if (preferences().generationExecutionBackend === "temporal") return await startQueuedWorkflow(queuedJob);
+        return await runQueuedJobInProcess(queuedJob);
       } catch (error) {
         return block(errorMessage(error));
       }

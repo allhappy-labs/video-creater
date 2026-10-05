@@ -180,6 +180,7 @@ pub const WEB_HOST_DISPATCHED_OPERATIONS: &[&str] = &[
     "export_nle_xml_to_split_project_folder",
     "export_palmier_project_package_to_split_project_folder",
     "run_generate_media_in_process",
+    "run_transcribe_media_in_process",
     "list_shader_background_templates",
     "get_temporal_worker_environment_report",
     "get_platform_info",

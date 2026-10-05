@@ -1727,6 +1727,11 @@ fn load_split_project_from_folder_impl_with_lease(
     let now = chrono::Utc::now().to_rfc3339();
     recover_interrupted_local_render_jobs_with_lease(&project_dir, &now, lease)
         .map_err(pipeline_errors_to_string)?;
+    video_creater_lib::workflows::transcribe_in_process::fail_interrupted_in_process_transcriptions(
+        &project_dir,
+        &now,
+    )
+    .map_err(|error| error.to_string())?;
     let recovery = reconcile_interrupted_generation_jobs_on_project_open(&project_dir, &now)
         .map_err(|error| error.to_string())?;
     let mut project = recovery.project;
@@ -3327,6 +3332,22 @@ fn build_temporal_start_result_action(
 #[cfg(not(feature = "temporal-worker"))]
 async fn start_temporal_workflow(job: JobSummary) -> Result<TemporalWorkflowStartResult, String> {
     temporal_workflow_unavailable_start_result(&job).map_err(|error| error.to_string())
+}
+
+/// Runs a recorded transcription job in this process and resolves the saved project once it ends.
+#[tauri::command]
+async fn run_transcribe_media_in_process(
+    start_request: TemporalWorkflowStartRequest,
+    updated_at: String,
+) -> Result<VideoProject, String> {
+    run_blocking_command("in-process transcription", move || {
+        video_creater_lib::workflows::transcribe_in_process::run_transcribe_media_in_process(
+            &start_request,
+            &updated_at,
+        )
+        .map_err(|error| error.to_string())
+    })
+    .await
 }
 
 #[tauri::command]
@@ -8213,6 +8234,7 @@ pub fn run() {
             build_temporal_export_nle_xml_start_request,
             start_temporal_workflow,
             run_generate_media_in_process,
+            run_transcribe_media_in_process,
             get_temporal_worker_environment_report,
             get_export_profile_availability_report,
             list_generation_model_catalog,

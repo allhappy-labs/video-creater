@@ -2,6 +2,7 @@
 mod bundle_publication_tests;
 mod temporal_export_destination;
 pub mod temporal_reconcile;
+pub mod transcribe_in_process;
 
 use crate::codex::app_server::{
     bundled_codex_app_server_command, codex_app_server_deadline, proposal_from_value,

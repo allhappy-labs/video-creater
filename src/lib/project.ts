@@ -4047,6 +4047,14 @@ export async function runGenerateMediaInProcess(input: {
   return backendRequest("run_generate_media_in_process", input);
 }
 
+/** Runs a recorded transcription job in the backend process; resolves the saved project once it ends. */
+export async function runTranscribeMediaInProcess(input: {
+  startRequest: TemporalWorkflowStartRequest;
+  updatedAt: string;
+}): Promise<VideoProject> {
+  return backendRequest("run_transcribe_media_in_process", input);
+}
+
 export async function getTemporalWorkerEnvironmentReport(): Promise<TemporalWorkerEnvironmentReport> {
   return backendRequest("get_temporal_worker_environment_report");
 }

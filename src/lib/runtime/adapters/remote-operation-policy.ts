@@ -38,6 +38,7 @@ const longJobs = new Set([
   "render_media_to_split_project_folder", "render_webm_to_split_project_folder", "prepare_project_preview",
   "capture_canonical_preview_frame_in_split_project_folder", "cache_timeline_filmstrip_in_split_project_folder",
   "analyze_media_for_edit_in_split_project_folder", "analyze_project_speech", "run_generate_media_in_process",
+  "run_transcribe_media_in_process",
   "generate_one_click_edit_for_project", "generate_spoken_semantic_multi_source_edit_for_project",
   "export_nle_xml_to_split_project_folder", "export_palmier_project_package_to_split_project_folder",
   "extract_visual_frame_cache_in_split_project_folder", "caption_visual_frame_cache_in_split_project_folder",

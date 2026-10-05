@@ -38,6 +38,8 @@ const recognizedUnavailableOperations = [
   "get_active_transcription_model",
   "get_transcription_runtime_status",
   "get_production_speech_model_status",
+  // The fixture transcribes through its Temporal worker stand-in, the speech service's fallback.
+  "run_transcribe_media_in_process",
   // Folder-backed fixture samples (tasks, export) have no saved chats to list.
   "load_agent_sessions_from_split_project_folder",
   "load_app_server_conversation_history_from_split_project_folder",

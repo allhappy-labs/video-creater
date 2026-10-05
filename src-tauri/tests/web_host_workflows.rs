@@ -50,6 +50,7 @@ fn remote_workflow_operations_are_registered_without_exposing_internal_builders(
         "export_nle_xml_to_split_project_folder",
         "export_palmier_project_package_to_split_project_folder",
         "run_generate_media_in_process",
+        "run_transcribe_media_in_process",
         "remote_build_temporal_job_summary",
         "remote_build_temporal_transcribe_media_start_request",
         "remote_build_temporal_generate_media_start_request",
@@ -376,6 +377,90 @@ fn remote_mock_generation_completes_the_saved_job_and_asset() {
         load_split_project(&path).unwrap().jobs[0].status,
         JobStatus::Completed
     );
+}
+
+#[test]
+fn remote_transcription_runs_on_the_host_and_fails_the_saved_job_with_its_reason() {
+    use video_creater_lib::project::model::*;
+    use video_creater_lib::workflows::*;
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("transcription.palmier");
+    let now = "2026-10-04T00:00:00Z";
+    let mut project = VideoProject::new_empty("project-speech".into(), "Speech".into(), now.into());
+    // The media file does not exist, so the host's probe step fails before any model runs.
+    project.media.push(MediaAsset {
+        id: "media-1".into(),
+        name: None,
+        relative_path: "media/missing.mp4".into(),
+        kind: MediaKind::Video,
+        duration_seconds: 12.0,
+        width: Some(1920),
+        height: Some(1080),
+        fps: Some(30.0),
+        folder_id: None,
+    });
+    let start = temporal_transcribe_media_start_request(
+        &project.id,
+        "opaque",
+        "media-1",
+        "transcribe-1",
+        "en",
+    );
+    let mut job = temporal_job_summary(
+        TemporalWorkflowKind::TranscribeMedia,
+        &project.id,
+        "transcribe-1",
+        JobStatus::Queued,
+        now,
+    );
+    job.start_request = Some(start.clone());
+    project.jobs.push(job);
+    let project = save_split_project(&path, &project).unwrap().project;
+    let catalog = ProjectCatalog::new(vec![root.path().to_path_buf()]).unwrap();
+    let id = catalog.id_for_path(&path).unwrap();
+    let engine = RpcEngine::new(Arc::new(HostDispatcher::with_project_catalog(catalog)));
+    let request = |request_id: &str, start: &TemporalWorkflowStartRequest, revision: u64| {
+        engine.execute(
+            "workflow-session",
+            &BTreeSet::from([AuthorizationScope::HostAdmin]),
+            &serde_json::to_vec(&RpcEnvelope {
+                request_id: request_id.into(),
+                operation: "run_transcribe_media_in_process".into(),
+                project_id: Some(id.clone()),
+                expected_revision: Some(revision),
+                editor_lease_token: Some("test-editor-lease".into()),
+                payload: json!({"startRequest":start,"updatedAt":now}),
+            })
+            .unwrap(),
+            100,
+        )
+    };
+
+    let mut other = start.clone();
+    other.input["languageMode"] = json!("de");
+    let refused = request("transcription-other", &other, project.content_revision);
+    assert!(!refused.ok);
+    assert_eq!(
+        load_split_project(&path).unwrap().jobs[0].status,
+        JobStatus::Queued
+    );
+
+    let failed = request("transcription", &start, project.content_revision);
+    assert!(!failed.ok, "a missing source cannot be transcribed");
+    let saved = load_split_project(&path).unwrap();
+    assert_eq!(saved.jobs[0].status, JobStatus::Failed);
+    assert!(saved.jobs[0]
+        .failure_reason
+        .as_deref()
+        .is_some_and(|reason| !reason.is_empty()));
+    assert_eq!(
+        saved.jobs[0]
+            .workflow
+            .as_ref()
+            .and_then(|workflow| workflow.run_id.as_deref()),
+        Some("in-process/video-creater/project-speech/transcribe-media/transcribe-1")
+    );
+    assert!(saved.transcripts.is_empty());
 }
 
 #[test]

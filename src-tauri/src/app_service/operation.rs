@@ -163,6 +163,7 @@ pub const OPERATION_INVENTORY: &[OperationDescriptor] = &[
     operation!("reveal_storage_inventory_item", DesktopOnly, HostAdmin, Read, false, false, 65536, Some("Artifact details and download")),
     operation!("run_agent_component_self_test", Remote, HostAdmin, ExternalMutation, false, false, 65536, None),
     operation!("run_generate_media_in_process", Remote, ProjectWrite, ExternalMutation, true, true, 1048576, None),
+    operation!("run_transcribe_media_in_process", Remote, ProjectWrite, JobMutation, true, true, 1048576, None),
     operation!("run_preview_render_comparison_request_in_split_project_folder", Remote, ProjectWrite, JobMutation, true, true, 1048576, None),
     operation!("run_storage_cleanup", Remote, HostAdmin, HostMutation, false, false, 1048576, None),
     operation!("save_project_to_folder", Internal, ProjectWrite, ProjectMutation, true, true, 33554432, None),

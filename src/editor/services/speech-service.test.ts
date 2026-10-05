@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProjectAction, ProjectJobSummary, Transcript, VideoProject } from "@/lib/project";
+import { defaultAppPreferences } from "@/lib/app-settings";
 import { backendRequest } from "@/lib/runtime/backend-client";
 import { BackendUnavailableError } from "@/lib/runtime/backend-transport";
 import { fixtureProject } from "@/test-utils/editor-fixtures";
@@ -18,7 +19,7 @@ function mockBackend(handlers: Record<string, Handler>) {
   });
 }
 
-function setup(project: VideoProject = fixtureProject(), projectDir = "/projects/demo") {
+function setup(project: VideoProject = fixtureProject(), projectDir = "/projects/demo", backend: "inProcess" | "temporal" = "inProcess") {
   const store = createEditorStore({ projectDir, project });
   const applied: ProjectAction[][] = [];
   const applyActions = store.getState().applyActions;
@@ -28,7 +29,8 @@ function setup(project: VideoProject = fixtureProject(), projectDir = "/projects
       return applyActions(actions, options);
     },
   });
-  return { store, applied, service: createSpeechService(store) };
+  const preferences = () => ({ ...defaultAppPreferences, generationExecutionBackend: backend });
+  return { store, applied, service: createSpeechService(store, { preferences }) };
 }
 
 function items(store: EditorStore) {
@@ -123,6 +125,85 @@ describe("speech service", () => {
       await expect(service.transcribe("media-1")).resolves.toBe(false);
       expect(store.getState().project.jobs.find((job) => job.kind === "transcribe_media")?.status).toBe("failed");
       expect(store.getState().lastError).toContain("Connection refused");
+    });
+
+    const queuedJobCommands = {
+      build_temporal_job_summary: (input: Record<string, unknown>) => ({ id: input.jobId, kind: input.kind, status: "queued", updatedAt: input.updatedAt }),
+      build_temporal_transcribe_media_start_request: (input: Record<string, unknown>) => ({
+        workflowId: "wf",
+        workflowType: "VideoCreaterTranscribeMediaWorkflow",
+        taskQueue: "q",
+        input: { mediaId: input.mediaId, jobId: input.jobId },
+        searchAttributes: {},
+        activityTypes: [],
+        idReusePolicy: "rejectDuplicate",
+      }),
+    };
+
+    it("runs the recorded job in the backend process and loads its transcript", async () => {
+      const start = vi.fn();
+      const { store, applied, service } = setup();
+      mockBackend({
+        ...queuedJobCommands,
+        start_temporal_workflow: start,
+        run_transcribe_media_in_process: (input) => {
+          const request = input.startRequest as { input: { jobId: string } };
+          const project = store.getState().project;
+          return {
+            ...project,
+            jobs: project.jobs.map((job) => (job.id === request.input.jobId ? { ...job, status: "completed" } : job)),
+            transcripts: [transcript],
+          };
+        },
+      });
+
+      await expect(service.transcribe("media-1", "en")).resolves.toBe(true);
+
+      expect(start).not.toHaveBeenCalled();
+      expect(applied).toHaveLength(1);
+      expect(backendRequest).toHaveBeenCalledWith("run_transcribe_media_in_process", {
+        startRequest: expect.objectContaining({ workflowType: "VideoCreaterTranscribeMediaWorkflow", input: expect.objectContaining({ mediaId: "media-1" }) }),
+        updatedAt: expect.any(String),
+      });
+      expect(store.getState().project.jobs.find((job) => job.kind === "transcribe_media")?.status).toBe("completed");
+      expect(store.getState().project.transcripts).toEqual([transcript]);
+      expect(store.getState().lastError).toBeNull();
+    });
+
+    it("shows the backend's failure reason when the in-process run fails", async () => {
+      const { store, service } = setup();
+      let failed: VideoProject | null = null;
+      mockBackend({
+        ...queuedJobCommands,
+        run_transcribe_media_in_process: (input) => {
+          const request = input.startRequest as { input: { jobId: string } };
+          const project = store.getState().project;
+          failed = { ...project, jobs: project.jobs.map((job) => (job.id === request.input.jobId ? { ...job, status: "failed", failureReason: "No transcription model is installed." } : job)) };
+          throw new Error("No transcription model is installed.");
+        },
+        load_split_project_from_folder: () => failed,
+      });
+
+      await expect(service.transcribe("media-1")).resolves.toBe(false);
+
+      expect(store.getState().project.jobs.find((job) => job.kind === "transcribe_media")).toMatchObject({ status: "failed", failureReason: "No transcription model is installed." });
+      expect(store.getState().lastError).toBe("No transcription model is installed.");
+    });
+
+    it("starts a Temporal workflow instead when Temporal execution is selected", async () => {
+      const run = vi.fn();
+      const { store, service } = setup(fixtureProject(), "/projects/demo", "temporal");
+      mockBackend({
+        ...queuedJobCommands,
+        run_transcribe_media_in_process: run,
+        start_temporal_workflow: () => ({ status: "started", workflowId: "wf", workflowType: "t", taskQueue: "q", runId: "run-1", message: "" }),
+        build_temporal_start_result_action: (input) => ({ type: "updateJobStatus", jobId: (input.job as ProjectJobSummary).id, status: "running", updatedAt: input.updatedAt, runId: input.runId }),
+      });
+
+      await expect(service.transcribe("media-1")).resolves.toBe(true);
+
+      expect(run).not.toHaveBeenCalled();
+      expect(store.getState().project.jobs.find((job) => job.kind === "transcribe_media")?.status).toBe("running");
     });
 
     it("blocks missing media without calling the backend", async () => {

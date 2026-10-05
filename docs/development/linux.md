@@ -202,8 +202,9 @@ the smoke looks up no longer exists in `src/`.
 
 - Ubuntu 24.04 x86_64 is the verified target. Other distributions and ARM64 are not verified.
 - HEVC export requires a VA-API encoder (Intel/AMD GPU with Mesa or intel-media drivers).
-- Local transcription from the editor and Temporal execution require a running Temporal service
-  and `video-creater-temporal-worker`, as on macOS.
+- Temporal execution requires a running Temporal service and `video-creater-temporal-worker`, and
+  a build with the `temporal-worker` feature. Transcription from the editor runs in the app process
+  by default and needs neither.
 - OpenH264 is built by Ubuntu from source, so Cisco's binary patent license does not apply;
   H.264/AAC patent licensing is not assessed by this project.
 - The semantic encoder's ONNX export declares no license of its own; Apache-2.0 is inherited from

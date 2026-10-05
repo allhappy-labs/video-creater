@@ -5,6 +5,7 @@ use crate::project::mutation::acquire_split_project_mutation_lease;
 use crate::project::nle_export::{
     export_project_timeline_to_nle_xml, nle_xml_export_artifact, NleXmlFormat,
 };
+use crate::workflows::transcribe_in_process::run_transcribe_media_in_process_at;
 use crate::workflows::*;
 use serde::de::DeserializeOwned;
 
@@ -46,6 +47,7 @@ impl HostDispatcher {
             "export_nle_xml_to_split_project_folder" => self.export_xml(request),
             "export_palmier_project_package_to_split_project_folder" => self.export_bundle(request),
             "run_generate_media_in_process" => self.run_generation(request),
+            "run_transcribe_media_in_process" => self.run_transcription(request),
             "remote_start_temporal_workflow" => self.start_workflow(request),
             "reconcile_temporal_jobs_in_split_project_folder" => self.reconcile_workflows(request),
             _ => return None,
@@ -435,6 +437,23 @@ impl HostDispatcher {
         let saved = load_split_project(&path).map_err(internal)?;
         let job = saved.jobs.iter().find(|job| job.id == job_id).cloned();
         value(json!({"project":saved,"exportPath":output,"job":job}))
+    }
+
+    /// Runs a recorded transcription job on the host; the host has no Temporal worker to hand it to.
+    fn run_transcription(&self, request: &RpcEnvelope) -> Result<Value, ServiceError> {
+        let (path, _) = self.checked_project(request, true)?;
+        let supplied: TemporalWorkflowStartRequest = decode(&request.payload, "startRequest")?;
+        let updated_at = text(&request.payload, "updatedAt")?;
+        match run_transcribe_media_in_process_at(&path, &supplied, updated_at) {
+            Ok(project) => value(project),
+            Err(
+                TemporalWorkflowInputError::MismatchedInputField(_)
+                | TemporalWorkflowInputError::DecodeActivityInput(_),
+            ) => Err(ServiceError::invalid_input(
+                "transcription request differs from the recorded job",
+            )),
+            Err(error) => Err(internal(error)),
+        }
     }
 
     fn run_generation(&self, request: &RpcEnvelope) -> Result<Value, ServiceError> {
