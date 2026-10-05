@@ -105,6 +105,25 @@ Commit `ef114b13` changes only `scripts/linux-desktop-smoke*` and its documentat
 
 The JavaScript `braces` advisory is reached only through `tailwindcss > chokidar` (development tooling) and stays covered by the hash-checked local patch.
 
+## In-process transcription (2026-10-05)
+
+The audits exposed a release blocker: "Generate captions" had only a Temporal path, so the `b1faf305` package could not transcribe at all (`output/packaged-captions-check/run1/evidence.json`: job failed with "The workflow never started."). Commit `cc85981c` fixes it. A recorded transcription job now runs the same probe, run and store steps in the app process by default; Temporal execution still starts a workflow when selected. The remote host gets the same operation. A job an earlier session left running is failed on project open.
+
+This changes packaged code, so `b1faf305` package evidence is superseded by `cc85981c2f63`:
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Rust | 7 new unit tests and all 13 `web_host_workflows` integration tests passed. The full Rust library and integration suites were not rerun. | `output/in-process-transcription/` |
+| Frontend | `pnpm test`: 2,985 passed. Type checks, unused-code check and source-quality suite (159) passed. | — |
+| Release package | Built and audited: status `passed`, SHA-256 `f65862d4831d4e507f0e8bed65d46b12da04359dd1a0aebc600490fab3863bc4`. | `output/linux-release/cc85981c2f63/report.json` |
+| Captions in the package | With default execution, the 30-second speech fixture transcribed to 43 words, the job completed under an `in-process/` run ID, and 11 caption cues were placed. | `output/packaged-captions-check/cc85981c2f63/evidence.json` |
+| Packaged smoke | 22 passed, 1 failed, 12 skipped (flags not requested). Core steps, native menu and both Temporal-unavailable steps passed. The one failure was the keyring step, caused by the run's own setup: its `XDG_RUNTIME_DIR` path was too long for the keyring daemon's control socket. | `output/linux-desktop-smoke/cc85981c2f63/evidence.json` |
+| Keyring rerun | 3 of 3 passed with a short runtime directory under `/tmp`. | `output/linux-desktop-smoke/cc85981c2f63-keyring-r2/evidence.json` |
+
+Use a short `XDG_RUNTIME_DIR` (for example `mktemp -d /tmp/vc-run-XXXXXX`) whenever a smoke run passes `--keyring-root`.
+
+Not re-proven on `cc85981c`: the 30-second native render benchmark, long-GOP audit, remote runtime package, remote browser path and fixture browser/visual path. The change does not touch render or preview code, but those rows above still describe `b1faf305`. Not covered at all: in-process transcription through a deployed remote host with a real model (the integration test proves routing and failure handling only), and cancelling a running transcription, which neither path supports.
+
 ## Remaining release gates
 
 | Gate | Why it remains open | Required next evidence |
