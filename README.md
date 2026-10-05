@@ -4,9 +4,46 @@
 > setup steps may change, and builds may contain bugs. Keep backups of important projects and
 > original media. This repository is not a stable release or a promise of support.
 
-Video Creater is a desktop video editor for macOS and Linux with local transcription, speech-aware editing,
-agent-assisted edit proposals, native delivery exports, and a bundled GStreamer Editing
-Services composition runtime.
+**Edit video by talking to it.** Video Creater is a desktop editor for macOS and Linux that
+transcribes your footage on your own machine, lets you cut and caption from the words people
+actually said, and pairs a real multi-track timeline with an AI agent that proposes edits you can
+inspect and undo. Your media and transcripts stay local, and finished work leaves as MP4, ProRes
+or WebM, or as a Premiere or DaVinci timeline.
+
+![The editor with a generated transcript, caption cues on the timeline and caption styling](docs/screenshots/editor-captions.png)
+
+## At a glance
+
+- **Captions from speech, on device.** Transcription and speech analysis run locally with
+  app-managed models. Generate captions in one click, fix words in the transcript, and restyle
+  every cue at once.
+- **An agent that edits the timeline, not a black box.** Describe a change in plain language.
+  Safe edits apply as one batch with **Show changes** and **Undo**; anything paid, generative or
+  destructive waits for your review.
+- **A real editor underneath.** Multi-track timeline, effects and transitions, text and graphics
+  layers, audio cleanup, and frame-accurate preview on a bundled GStreamer Editing Services
+  runtime.
+- **Delivery without lock-in.** Export MP4, ProRes or WebM at up to 4K, hand off Premiere XML
+  or DaVinci XML, or pack the whole project into one folder.
+- **Your keys, your machine.** Generative providers are optional and use credentials you store in
+  the system keychain. The source is MIT licensed.
+
+## From footage to export
+
+Import a clip, add it to the timeline and open **Captions**. The transcript appears beside the
+preview with low-confidence words marked for a quick check, and the cues land on their own track.
+The **AI** tab takes it from there: ask it to tighten the pacing, remove dead air or make a
+shorter cut.
+
+![The AI tab with suggested edits next to the preview and timeline](docs/screenshots/editor-ai.png)
+
+When the cut is ready, **Export** is the one place to choose a format, resolution and quality, or
+to send the timeline to another editor.
+
+![The Export popover with format, resolution and quality choices](docs/screenshots/editor-export.png)
+
+The screenshots show the Linux build working on the public-domain Edison sample footage; see
+[media provenance](THIRD_PARTY_NOTICES.md).
 
 ## Editor
 
