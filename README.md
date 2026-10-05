@@ -7,8 +7,9 @@
 **Edit video by talking to it.** Video Creater is a desktop editor for macOS and Linux that
 transcribes your footage on your own machine, lets you cut and caption from the words people
 actually said, and pairs a real multi-track timeline with an AI agent that proposes edits you can
-inspect and undo. Your media and transcripts stay local, and finished work leaves as MP4, ProRes
-or WebM, or as a Premiere or DaVinci timeline.
+inspect and undo. Transcription and editing run locally; project content leaves your machine only
+when you use the agent or a generative provider. Finished work exports as MP4, ProRes or WebM, or
+as a Premiere or DaVinci timeline.
 
 ![The editor with a generated transcript, caption cues on the timeline and caption styling](docs/screenshots/editor-captions.png)
 
